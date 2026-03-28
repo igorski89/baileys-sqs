@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ElasticMQ - SQS-compatible queue server for local development
   elasticmq:
@@ -12,13 +10,8 @@ services:
       - ./elasticmq.conf:/opt/elasticmq.conf
       - ./docker-volumes/elasticmq:/data
     command: -Dconfig.file=/opt/elasticmq.conf
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9324"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
-      - baileys-network
+      - baileys-sqs-network
 
   # Baileys SQS Application - Development mode with hot reload
   app:
@@ -28,7 +21,7 @@ services:
     container_name: baileys-sqs-app-dev
     command: >
       sh -c "npm install &&
-             npx ts-node-dev --respawn --transpile-only --poll index.ts"
+             npx tsx watch --clear-screen=false index.ts"
     volumes:
       # Mount source code for hot reloading
       - .:/app
@@ -38,23 +31,51 @@ services:
       - ./docker-volumes/auth:/app/auth_info_baileys
     environment:
       - NODE_ENV=development
-      - AWS_REGION=us-east-1
+      - AWS_REGION=elasticmq
       - AWS_ACCESS_KEY_ID=local
       - AWS_SECRET_ACCESS_KEY=local
       - AWS_ENDPOINT_URL=http://elasticmq:9324
-      - SQS_INPUT_QUEUE_URL=http://elasticmq:9324/queue/input-queue
-      - SQS_OUTPUT_QUEUE_URL=http://elasticmq:9324/queue/output-queue
+      - INPUT_QUEUE=http://elasticmq:9324/queue/input-queue
+      - OUTPUT_QUEUE=http://elasticmq:9324/queue/output-queue
+      - SESSION_DIR=/app/auth_info_baileys
       - LOG_LEVEL=debug
       - SHOW_QR_TERMINAL=true
-      - TS_NODE_TRANSPILE_ONLY=true
     depends_on:
-      elasticmq:
-        condition: service_healthy
+      - elasticmq
     networks:
-      - baileys-network
+      - baileys-sqs-network
+    stdin_open: true
+    tty: true
+
+  # Output Queue Listener - For development debugging
+  listener:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: baileys-sqs-listener-dev
+    command: >
+      sh -c "npm install &&
+             npx tsx watch --clear-screen=false listener.ts"
+    volumes:
+      # Mount source code for hot reloading
+      - .:/app
+      # Persist node_modules separately
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - AWS_REGION=elasticmq
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      - AWS_ENDPOINT_URL=http://elasticmq:9324
+      - OUTPUT_QUEUE=http://elasticmq:9324/queue/output-queue
+      - DEBUG=true
+    depends_on:
+      - elasticmq
+    networks:
+      - baileys-sqs-network
     stdin_open: true
     tty: true
 
 networks:
-  baileys-network:
+  baileys-sqs-network:
     driver: bridge

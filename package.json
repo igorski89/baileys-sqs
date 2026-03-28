@@ -11,7 +11,7 @@
   ],
   "license": "MIT",
   "author": "Igor Ievsiukov <igor.ievsiukov@gmail.com>",
-  "type": "commonjs",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -20,21 +20,26 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only index.ts",
+    "dev": "tsx watch index.ts",
+    "listener": "tsx watch listener.ts",
+    "listener:prod": "node dist/listener.js",
     "clean": "rm -rf dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys#master",
     "@aws-sdk/client-sqs": "^3.450.0",
+    "@hapi/boom": "^10.0.1",
+    "@cacheable/node-cache": "^1.5.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
     "qrcode-terminal": "^0.12.0",
-    "pino": "^8.16.0"
+    "readline": "^1.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.2.2",
-    "ts-node": "^10.9.1",
-    "ts-node-dev": "^2.0.0"
+    "tsx": "^4.19.0"
   },
   "engines": {
     "node": ">=25.0.0"
