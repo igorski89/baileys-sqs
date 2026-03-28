@@ -11,13 +11,13 @@ This application implements a two-queue architecture:
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Your System    │────▶│  Input Queue    │────▶│   WhatsApp    │
+│  Your System    │────▶│  Input Queue    │────▶│   WhatsApp      │
 │                 │     │  (SQS)          │     │   (Baileys)     │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                               ▲                         │
                               │                         │
-┌─────────────────┐     ┌─────┴─────────┐              │
-│  Your System    │◀────│  Output Queue │◀─────────────┘
+┌─────────────────┐     ┌─────┴───────────┐             │
+│  Your System    │◀────│  Output Queue   │◀────────────┘
 │                 │     │  (SQS)          │
 └─────────────────┘     └─────────────────┘
 ```
