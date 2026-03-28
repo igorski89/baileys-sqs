@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # ElasticMQ - SQS-compatible queue server for local development
+  elasticmq:
+    container_name: baileys-sqs-elasticmq
+    image: softwaremill/elasticmq-native:latest
+    ports:
+      - "9324:9324"  # SQS API port
+      - "9325:9325"  # REST API port
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf
+      - ./docker-volumes/elasticmq:/data
+    command: -Dconfig.file=/opt/elasticmq.conf
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9324"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - baileys-network
+
+  # Baileys SQS Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: baileys-sqs-app
+    environment:
+      - NODE_ENV=development
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      - AWS_ENDPOINT_URL=http://elasticmq:9324
+      - SQS_INPUT_QUEUE_URL=http://elasticmq:9324/queue/input-queue
+      - SQS_OUTPUT_QUEUE_URL=http://elasticmq:9324/queue/output-queue
+      - LOG_LEVEL=debug
+      - SHOW_QR_TERMINAL=true
+    volumes:
+      - ./docker-volumes/auth:/app/auth_info_baileys
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+    networks:
+      - baileys-network
+    stdin_open: true
+    tty: true
+
+networks:
+  baileys-network:
+    driver: bridge

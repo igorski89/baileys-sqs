@@ -1,0 +1,15 @@
+FROM node:25-alpine
+
+WORKDIR /app
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy package files
+COPY package.json tsconfig.json ./
+
+# Install all dependencies (including devDependencies)
+RUN npm install
+
+# Default command (can be overridden in docker-compose)
+CMD ["npx", "ts-node", "index.ts"]
