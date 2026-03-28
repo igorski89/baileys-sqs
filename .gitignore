@@ -73,7 +73,7 @@ temp/
 
 # Docker
 .docker/
-# docker-volumes/
+docker-volumes/
 
 # Misc
 *.tgz
