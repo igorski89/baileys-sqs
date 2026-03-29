@@ -76,6 +76,34 @@ services:
     stdin_open: true
     tty: true
 
+  # CLI Sender Tool - Interactive WhatsApp message sender
+  sender:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: baileys-sqs-sender-dev
+    command: >
+      sh -c "npm install &&
+             npx tsx sender.ts"
+    volumes:
+      # Mount source code for hot reloading
+      - .:/app
+      # Persist node_modules separately
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - AWS_REGION=elasticmq
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      - AWS_ENDPOINT_URL=http://elasticmq:9324
+      - INPUT_QUEUE=http://elasticmq:9324/queue/input-queue
+    depends_on:
+      - elasticmq
+    networks:
+      - baileys-sqs-network
+    stdin_open: true
+    tty: true
+
 networks:
   baileys-sqs-network:
     driver: bridge

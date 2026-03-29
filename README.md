@@ -222,6 +222,61 @@ npm run build
 npm run listener:prod
 ```
 
+### Using the Sender (CLI Tool)
+
+A command-line tool is included to send WhatsApp messages via the input queue:
+
+```bash
+# Interactive mode - prompts for phone and message
+npm run sender
+
+# Direct mode - send immediately
+npm run sender "+1234567890" "Hello, World!"
+
+# Or with spaces in message
+npm run sender "+1234567890" "How are you today?"
+```
+
+**Interactive mode example:**
+```
+📱 WhatsApp SQS Sender
+Connected to: http://localhost:9324/queue/input-queue
+Enter messages in format: "phone number" "message body"
+Type "quit" or "exit" to stop
+
+> "+1234567890" "Hello from the CLI!"
+✅ Message queued: +1234567890 - "Hello from the CLI!"
+
+> quit
+👋 Goodbye!
+```
+
+**Environment Variables:**
+```env
+INPUT_QUEUE=http://localhost:9324/queue/input-queue
+AWS_REGION=elasticmq
+AWS_ACCESS_KEY_ID=local
+AWS_SECRET_ACCESS_KEY=local
+AWS_ENDPOINT_URL=http://localhost:9324
+```
+
+### Using the Sender (Docker)
+
+The sender is also available as a Docker service:
+
+```bash
+# Run with Docker Compose (development)
+docker-compose -f docker-compose.dev.yml run --rm sender
+
+# Or in production mode
+docker-compose run --rm sender
+```
+
+**Direct mode with Docker:**
+```bash
+docker-compose -f docker-compose.dev.yml run --rm sender sh -c "npx tsx sender.ts '+1234567890' 'Hello from Docker!'"
+```
+
 ### Features
 
 - **QR Code Display**: When a QR code event is received, the terminal is cleared and a large QR code is displayed with instructions
@@ -247,9 +302,11 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 |--------|-------------|
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm run start` | Run the main application |
-| `npm run dev` | Run main app in development mode with ts-node |
+| `npm run dev` | Run main app in development mode with tsx |
 | `npm run listener` | Run output queue listener (development) |
 | `npm run listener:prod` | Run output queue listener (production) |
+| `npm run sender` | Run CLI tool to send WhatsApp messages |
+| `npm run sender:prod` | Run sender CLI (production) |
 | `npm run clean` | Remove the `dist` directory |
 | `npm test` | Run tests (placeholder) |
 
@@ -259,6 +316,7 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 baileys-sqs/
 ├── index.ts                       # Main application entry point
 ├── listener.ts                    # Output queue listener (QR renderer + pretty print)
+├── sender.ts                      # CLI tool to send WhatsApp messages
 ├── package.json                   # Dependencies and scripts
 ├── tsconfig.json                  # TypeScript configuration
 ├── Dockerfile                     # Production multi-stage Docker build

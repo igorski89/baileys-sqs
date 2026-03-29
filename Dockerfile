@@ -3,6 +3,9 @@ FROM node:25-alpine AS builder
 
 WORKDIR /app
 
+# Install git for GitHub dependencies
+RUN apk add --no-cache git
+
 # Copy package files
 COPY package.json tsconfig.json ./
 
@@ -10,7 +13,8 @@ COPY package.json tsconfig.json ./
 RUN npm install
 
 # Copy source code
-COPY index.ts ./
+COPY *.ts ./
+COPY types.d.ts ./
 
 # Build TypeScript
 RUN npm run build
@@ -19,6 +23,9 @@ RUN npm run build
 FROM node:25-alpine AS production
 
 WORKDIR /app
+
+# Install git for GitHub dependencies
+RUN apk add --no-cache git
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \

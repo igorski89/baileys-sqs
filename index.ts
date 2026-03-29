@@ -70,8 +70,12 @@ const sendToQueue = async (body: any) => {
 
 // ================= HELPERS =================
 
-const normalizeJid = (to: string) =>
-  to.includes('@') ? to : `${to}@s.whatsapp.net`
+const normalizeJid = (to: string) => {
+  if (to.includes('@')) return to
+  // Remove + prefix and any spaces from phone number
+  const cleanNumber = to.replace(/[\s+]/g, '')
+  return `${cleanNumber}@s.whatsapp.net`
+}
 
 const getMediaType = (msg: any) => {
   const m = msg.message || {}

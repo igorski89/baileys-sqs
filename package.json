@@ -23,6 +23,8 @@
     "dev": "tsx watch index.ts",
     "listener": "tsx watch listener.ts",
     "listener:prod": "node dist/listener.js",
+    "sender": "tsx sender.ts",
+    "sender:prod": "node dist/sender.js",
     "clean": "rm -rf dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
