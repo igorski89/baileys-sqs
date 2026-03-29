@@ -26,6 +26,7 @@ const OUTPUT_QUEUE = process.env.OUTPUT_QUEUE!
 const SESSION_DIR = process.env.SESSION_DIR || './auth'
 const BASE64_MEDIA = process.env.BASE64_MEDIA !== 'false'
 const USE_PAIRING_CODE = process.env.USE_PAIRING_CODE === 'true'
+const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION
 
 const RAW_EVENTS = process.env.LISTEN_EVENTS || '*'
 const LISTEN_EVENTS =
@@ -152,9 +153,27 @@ const startWhatsApp = async () => {
   
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
-  // fetch latest version of WA Web
-  const { version, isLatest } = await fetchLatestBaileysVersion()
-  logger.debug({ version: version.join('.'), isLatest }, 'using WA version')
+  // Get WhatsApp version - use env var if provided, otherwise fetch latest
+  let version: [number, number, number]
+  let isLatest = false
+  
+  if (WHATSAPP_VERSION) {
+    try {
+      version = JSON.parse(WHATSAPP_VERSION) as [number, number, number]
+      logger.debug({ version: version.join('.') }, 'using WHATSAPP_VERSION from env')
+    } catch (err) {
+      logger.error({ err, WHATSAPP_VERSION }, 'Failed to parse WHATSAPP_VERSION, falling back to latest')
+      const latest = await fetchLatestBaileysVersion()
+      version = latest.version
+      isLatest = latest.isLatest
+      logger.debug({ version: version.join('.'), isLatest }, 'using latest WA version')
+    }
+  } else {
+    const latest = await fetchLatestBaileysVersion()
+    version = latest.version
+    isLatest = latest.isLatest
+    logger.debug({ version: version.join('.'), isLatest }, 'using latest WA version')
+  }
 
   sock = makeWASocket({
     version,

@@ -40,6 +40,7 @@ services:
       - SESSION_DIR=/app/auth_info_baileys
       - LOG_LEVEL=debug
       - SHOW_QR_TERMINAL=true
+      - WHATSAPP_VERSION=[2, 3000, 1036200034]
     depends_on:
       - elasticmq
     networks:

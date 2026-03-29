@@ -67,6 +67,10 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 SESSION_DIR=./auth_info_baileys
 BASE64_MEDIA=true
 LISTEN_EVENTS=*
+
+# Optional: Pin WhatsApp Web version (skips GitHub fetch)
+# Format: [major,minor,patch] as JSON array
+# WHATSAPP_VERSION=[2,3000,1035194821]
 ```
 
 ## Usage
