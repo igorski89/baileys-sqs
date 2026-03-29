@@ -2,8 +2,6 @@
 
 Baileys SQS connector - A WhatsApp Web integration using AWS SQS for bidirectional message queuing.
 
-> ⚠️ **Important:** WhatsApp blocks Docker connections (405 error). For initial setup and QR code scanning, you **must** run locally without Docker. See [Troubleshooting](#connection-failure-405-error---most-common-issue) for details.
-
 ## Architecture
 
 This application implements a two-queue architecture:
@@ -16,9 +14,9 @@ This application implements a two-queue architecture:
 │  Your System    │────▶│  Input Queue    │────▶│   WhatsApp      │
 │                 │     │  (SQS)          │     │   (Baileys)     │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-                              ▲                         │
-                              │                         │
-┌─────────────────┐     ┌─────┴───────────┐             │
+                                                        │
+                                                        │
+┌─────────────────┐     ┌─────────────────┐             │
 │  Your System    │◀────│  Output Queue   │◀────────────┘
 │                 │     │  (SQS)          │
 └─────────────────┘     └─────────────────┘
@@ -35,7 +33,7 @@ This application implements a two-queue architecture:
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/igorski89/baileys-sqs.git
 cd baileys-sqs
 
 # Install dependencies
@@ -233,10 +231,6 @@ npm run sender
 # Direct mode - send immediately
 npm run sender "+1234567890" "Hello, World!"
 
-# Or with spaces in message
-npm run sender "+1234567890" "How are you today?"
-```
-
 **Interactive mode example:**
 ```
 📱 WhatsApp SQS Sender
@@ -337,69 +331,10 @@ baileys-sqs/
 - **[@aws-sdk/client-sqs](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/sqs/)** - AWS SQS SDK v3
 - **[ElasticMQ](https://github.com/softwaremill/elasticmq)** - SQS-compatible message queue for local development
 - **TypeScript** - Type-safe JavaScript
-- **tsx](https://github.com/privatenumber/tsx)** - TypeScript execution for ESM
+- **[tsx](https://github.com/privatenumber/tsx)** - TypeScript execution for ESM
 - **Docker** - Containerization
 
-## Baileys v7.0 Migration Notes
-
-This project has been migrated to Baileys v7.0.0-rc.9 which includes significant changes:
-
-### ESM-Only Module System
-Baileys 7.0 is now ESM-only. This project has been converted to use ES modules:
-- `"type": "module"` in `package.json`
-- Uses `tsx` for TypeScript execution (replaces ts-node)
-- Compatible with Node.js native ESM
-
-### LID (Local Identifier) System
-WhatsApp now assigns LIDs to users for privacy. The auth state has been updated to support:
-- `lid-mapping` - Maps phone numbers to LIDs
-- `device-list` - Device pairing information
-- `tctoken` - Token information
-
-For more details, see the [Baileys v7.0 Migration Guide](https://baileys.wiki/docs/migration/to-v7.0.0/).
-
 ## Troubleshooting
-
-### Connection Failure (405 Error) - Most Common Issue
-
-If you see `Connection Failure (Code: 405)` in the logs, **WhatsApp is blocking your connection**. This is **not a bug** - it's WhatsApp's anti-spam protection.
-
-**Why this happens:**
-- Docker containers use data center IPs that WhatsApp flags as suspicious
-- Cloud providers (AWS, GCP, Azure) have IPs that are commonly blocked
-- Running from a VPN or proxy may also trigger this
-
-**Solution - Run Locally (Required for QR Code):**
-
-You **must** run the app locally (not in Docker) for the initial authentication:
-
-```bash
-# Terminal 1: Start ElasticMQ
-docker run -p 9324:9324 -p 9325:9325 \
-  -v $(pwd)/elasticmq.conf:/opt/elasticmq.conf \
-  softwaremill/elasticmq:latest \
-  -Dconfig.file=/opt/elasticmq.conf
-
-# Terminal 2: Run the app locally
-export AWS_REGION=elasticmq
-export AWS_ACCESS_KEY_ID=local
-export AWS_SECRET_ACCESS_KEY=local
-export AWS_ENDPOINT_URL=http://localhost:9324
-export INPUT_QUEUE=http://localhost:9324/queue/input-queue
-export OUTPUT_QUEUE=http://localhost:9324/queue/output-queue
-export SESSION_DIR=./auth_info_baileys
-npm run dev
-
-# Terminal 3: Run the listener locally
-export AWS_REGION=elasticmq
-export AWS_ACCESS_KEY_ID=local
-export AWS_SECRET_ACCESS_KEY=local
-export AWS_ENDPOINT_URL=http://localhost:9324
-export OUTPUT_QUEUE=http://localhost:9324/queue/output-queue
-npm run listener
-```
-
-After successfully scanning the QR code and authenticating, you can stop the local run and use Docker if needed (the auth will be saved).
 
 ### QR Code Not Appearing
 
