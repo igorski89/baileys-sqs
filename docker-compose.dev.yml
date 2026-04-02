@@ -40,7 +40,6 @@ services:
       - OUTPUT_QUEUE=http://elasticmq:9324/queue/output-queue
       - SESSION_DIR=/app/auth_info_baileys
       - LOG_LEVEL=debug
-      - SHOW_QR_TERMINAL=true
       - WHATSAPP_VERSION=[2, 3000, 1036200034]
     depends_on:
       - elasticmq
@@ -69,7 +68,6 @@ services:
       - AWS_REGION=elasticmq
       - AWS_ACCESS_KEY_ID=local
       - AWS_SECRET_ACCESS_KEY=local
-      - AWS_ENDPOINT_URL=http://elasticmq:9324
       - OUTPUT_QUEUE=http://elasticmq:9324/queue/output-queue
       - DEBUG=true
     depends_on:

@@ -29,7 +29,6 @@ services:
       - OUTPUT_QUEUE=http://elasticmq:9324/queue/output-queue
       - SESSION_DIR=/app/auth_info_baileys
       - LOG_LEVEL=debug
-      - SHOW_QR_TERMINAL=true
     volumes:
       - ./docker-volumes/auth:/app/auth_info_baileys
     depends_on:
