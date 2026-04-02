@@ -18,6 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    image: baileys-sqs-app-dev:latest
     container_name: baileys-sqs-app-dev
     command: >
       sh -c "npm install &&
@@ -53,6 +54,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    image: baileys-sqs-listener-dev:latest
     container_name: baileys-sqs-listener-dev
     command: >
       sh -c "npm install &&
@@ -82,6 +84,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    image: baileys-sqs-sender-dev:latest
     container_name: baileys-sqs-sender-dev
     command: >
       sh -c "npm install &&
