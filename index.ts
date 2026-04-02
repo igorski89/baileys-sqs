@@ -342,8 +342,22 @@ const handleCommand = async (cmd: any) => {
   const jid = normalizeJid(cmd.to)
 
   if (cmd.type === 'send_text') {
-    await sock.sendMessage(jid, { text: cmd.text })
-    logger.debug({ jid, text: cmd.text }, 'sent text message')
+    // Validate and sanitize options
+    const options = cmd.options || {}
+    if (options.quoted) {
+      // Baileys requires quoted to be a full WAMessage with both 'key' and 'message'
+      if (!options.quoted.message) {
+        logger.warn({
+          quotedKeys: Object.keys(options.quoted),
+          hasKey: !!options.quoted.key,
+          hasMessage: !!options.quoted.message
+        }, 'quoted object missing message property - stripping to prevent crash')
+        delete options.quoted
+      }
+    }
+
+    await sock.sendMessage(jid, { text: cmd.text }, options)
+    logger.debug({ jid, text: cmd.text, hasOptions: !!cmd.options, hasQuoted: !!options.quoted }, 'sent text message')
   }
 
   if (cmd.type === 'send_media') {
@@ -360,8 +374,22 @@ const handleCommand = async (cmd: any) => {
     else if (media.type === 'audio') message.audio = buffer
     else message.document = buffer
 
-    await sock.sendMessage(jid, message)
-    logger.debug({ jid, mediaType: media.type }, 'sent media message')
+    // Validate and sanitize options
+    const options = cmd.options || {}
+    if (options.quoted) {
+      // Baileys requires quoted to be a full WAMessage with both 'key' and 'message'
+      if (!options.quoted.message) {
+        logger.warn({
+          quotedKeys: Object.keys(options.quoted),
+          hasKey: !!options.quoted.key,
+          hasMessage: !!options.quoted.message 
+        }, 'quoted object missing message property - stripping to prevent crash')
+        delete options.quoted
+      }
+    }
+
+    await sock.sendMessage(jid, message, options)
+    logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted }, 'sent media message')
   }
 }
 
