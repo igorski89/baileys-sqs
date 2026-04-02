@@ -4,6 +4,7 @@ import makeWASocket, {
   CacheStore, 
   DEFAULT_CONNECTION_CONFIG, 
   DisconnectReason, 
+  downloadMediaMessage,
   fetchLatestBaileysVersion, 
   makeCacheableSignalKeyStore, 
   proto, 
@@ -88,14 +89,14 @@ const getMediaType = (msg: any) => {
 }
 
 // ===== Incoming media → base64 =====
-const extractMedia = async (sock: any, msg: any) => {
+const extractMedia = async (msg: any) => {
   if (!BASE64_MEDIA) return null
 
   const type = getMediaType(msg)
   if (!type) return null
 
   try {
-    const buffer = await sock.downloadMediaMessage(msg)
+    const buffer = await downloadMediaMessage(msg, 'buffer', {})
     if (!buffer) return null
 
     return {
@@ -273,7 +274,7 @@ const startWhatsApp = async () => {
           const messagesMeta = []
 
           for (const msg of upsertData.messages || []) {
-            const media = await extractMedia(sock, msg)
+            const media = await extractMedia(msg)
             if (media) msg._media = media
 
             messagesMeta.push({
