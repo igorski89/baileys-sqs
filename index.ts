@@ -1,13 +1,13 @@
 import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
-import makeWASocket, { 
-  CacheStore, 
-  DEFAULT_CONNECTION_CONFIG, 
-  DisconnectReason, 
+import makeWASocket, {
+  CacheStore,
+  DEFAULT_CONNECTION_CONFIG,
+  DisconnectReason,
   downloadMediaMessage,
-  fetchLatestBaileysVersion, 
-  makeCacheableSignalKeyStore, 
-  proto, 
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  proto,
   useMultiFileAuthState,
   WAMessageKey,
   WAMessageContent
@@ -52,7 +52,7 @@ const logger = P({
 
 // ================= AWS =================
 
-const sqs = new SQSClient({ 
+const sqs = new SQSClient({
   region: process.env.AWS_REGION || 'us-east-1',
   endpoint: process.env.AWS_ENDPOINT_URL
 })
@@ -151,13 +151,13 @@ let sock: any
 
 const startWhatsApp = async () => {
   logger.info(`Starting WhatsApp with SESSION_DIR: ${SESSION_DIR}`)
-  
+
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
   // Get WhatsApp version - use env var if provided, otherwise fetch latest
   let version: [number, number, number]
   let isLatest = false
-  
+
   if (WHATSAPP_VERSION) {
     try {
       version = JSON.parse(WHATSAPP_VERSION) as [number, number, number]
@@ -229,10 +229,10 @@ const startWhatsApp = async () => {
 
           await sendToQueue({
             type: 'connection',
-            payload: { 
-              status: 'disconnected', 
+            payload: {
+              status: 'disconnected',
               error: lastDisconnect?.error?.message,
-              code: statusCode 
+              code: statusCode
             }
           })
 
@@ -367,11 +367,22 @@ const handleCommand = async (cmd: any) => {
     const media = cmd.media
     const buffer = await resolveMediaBuffer(media)
 
-    const message: any = {
-      mimetype: media.mimetype || 'application/octet-stream',
-      fileName: media.filename || 'file'
+    // Start with cmd.message if provided, otherwise create empty object
+    const message: any = cmd.message || {}
+
+    // Convert text/conversation to caption for media messages
+    // Baileys uses 'caption' for media text, not 'text' or 'conversation'
+    if (message.text || message.conversation) {
+      message.caption = message.text || message.conversation
+      delete message.text
+      delete message.conversation
     }
 
+    // Always set mimetype and fileName
+    message.mimetype = media.mimetype || 'application/octet-stream'
+    message.fileName = media.filename || 'file'
+
+    // Override/add the media buffer based on type
     if (media.type === 'image') message.image = buffer
     else if (media.type === 'video') message.video = buffer
     else if (media.type === 'audio') message.audio = buffer
@@ -385,20 +396,20 @@ const handleCommand = async (cmd: any) => {
         logger.warn({
           quotedKeys: Object.keys(options.quoted),
           hasKey: !!options.quoted.key,
-          hasMessage: !!options.quoted.message 
+          hasMessage: !!options.quoted.message
         }, 'quoted object missing message property - stripping to prevent crash')
         delete options.quoted
       }
     }
 
     await sock.sendMessage(jid, message, options)
-    logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted }, 'sent media message')
+    logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
   }
 }
 
 const pollLoop = async () => {
   logger.info('Starting input queue poll loop')
-  
+
   while (true) {
     try {
       const res = await sqs.send(
