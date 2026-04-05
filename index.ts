@@ -356,8 +356,11 @@ const handleCommand = async (cmd: any) => {
       }
     }
 
-    await sock.sendMessage(jid, { text: cmd.text }, options)
-    logger.debug({ jid, text: cmd.text, hasOptions: !!cmd.options, hasQuoted: !!options.quoted }, 'sent text message')
+    // If client provides full message object, use it directly; otherwise use text
+    const messageContent = cmd.message || { text: cmd.text }
+
+    await sock.sendMessage(jid, messageContent, options)
+    logger.debug({ jid, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent text message')
   }
 
   if (cmd.type === 'send_media') {
