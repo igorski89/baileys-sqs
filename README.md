@@ -79,6 +79,33 @@ LISTEN_EVENTS=*
 # WHATSAPP_VERSION=[2,3000,1035194821]
 ```
 
+### HTTP Input Endpoint
+
+By default, commands are sent to WhatsApp by pushing them onto `INPUT_QUEUE`. Setting `PORT` starts an HTTP endpoint alongside the SQS poller — **it's additive, not a replacement** — so you can POST the same command payload directly instead of going through SQS:
+
+```env
+PORT=3000
+AUTH_TOKEN=change_me_to_a_long_random_value
+```
+
+```bash
+curl -X POST http://localhost:3000/commands \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"send_text","to":"+1234567890","text":"Hello from HTTP!"}'
+```
+
+The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, etc. — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Enables the HTTP endpoint when set | disabled |
+| `HTTP_HOST` | Bind address | `0.0.0.0` |
+| `AUTH_TOKEN` | Bearer token required in `Authorization: Bearer <token>` | none (unauthenticated) |
+| `HTTP_MAX_BODY_BYTES` | Max request body size in bytes | `10485760` (10 MiB) |
+
+> **Note:** If `AUTH_TOKEN` is not set, the endpoint accepts unauthenticated requests. Only run it without a token on a trusted network, and always set `AUTH_TOKEN` before exposing the port publicly.
+
 ### Media Storage (S3 / MinIO)
 
 By default, incoming media attachments are inlined into outgoing queue messages as base64 data.

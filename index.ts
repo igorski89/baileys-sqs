@@ -26,6 +26,8 @@ import {
   S3ClientConfig
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { createServer, IncomingMessage, ServerResponse } from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 
 
 // ================= ENV =================
@@ -64,6 +66,14 @@ const s3SecretAccessKey =
 // (required for MinIO and most S3-compatible services).
 const s3ForcePathStyle =
   process.env.S3_FORCE_PATH_STYLE === 'true' || !!S3_ENDPOINT_URL
+
+// Optional HTTP input endpoint, additive to the SQS input queue (not a
+// replacement) — useful for callers that would rather POST a command
+// directly than push it onto SQS.
+const HTTP_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined
+const HTTP_HOST = process.env.HTTP_HOST || '0.0.0.0'
+const HTTP_AUTH_TOKEN = process.env.AUTH_TOKEN
+const HTTP_MAX_BODY_BYTES = parseInt(process.env.HTTP_MAX_BODY_BYTES || `${10 * 1024 * 1024}`, 10)
 
 const RAW_EVENTS = process.env.LISTEN_EVENTS || '*'
 const LISTEN_EVENTS =
@@ -496,6 +506,7 @@ const handleCommand = async (cmd: any) => {
 
     await sock.sendMessage(jid, messageContent, options)
     logger.debug({ jid, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent text message')
+    return
   }
 
   if (cmd.type === 'send_media') {
@@ -539,7 +550,118 @@ const handleCommand = async (cmd: any) => {
 
     await sock.sendMessage(jid, message, options)
     logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
+    return
   }
+
+  throw new Error(`Unknown command type: ${cmd.type}`)
+}
+
+// ================= HTTP INPUT ENDPOINT =================
+
+const readJsonBody = (req: IncomingMessage): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks: Buffer[] = []
+
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > HTTP_MAX_BODY_BYTES) {
+        reject(new Error('Payload too large'))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      try {
+        resolve(raw ? JSON.parse(raw) : {})
+      } catch {
+        reject(new Error('Invalid JSON body'))
+      }
+    })
+
+    req.on('error', reject)
+  })
+}
+
+const sendJson = (res: ServerResponse, status: number, body: any) => {
+  const payload = JSON.stringify(body)
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload)
+  })
+  res.end(payload)
+}
+
+// Constant-time comparison so token length/content can't be inferred by timing.
+const safeCompare = (a: string, b: string) => {
+  const aBuf = Buffer.from(a)
+  const bBuf = Buffer.from(b)
+  return aBuf.length === bBuf.length && timingSafeEqual(aBuf, bBuf)
+}
+
+const isAuthorized = (req: IncomingMessage): boolean => {
+  if (!HTTP_AUTH_TOKEN) return true
+
+  const header = req.headers['authorization']
+  if (!header) return false
+
+  return safeCompare(header, `Bearer ${HTTP_AUTH_TOKEN}`)
+}
+
+const startHttpServer = () => {
+  if (!HTTP_PORT) {
+    logger.info('PORT not set - HTTP input endpoint disabled (SQS input queue only)')
+    return
+  }
+
+  if (!HTTP_AUTH_TOKEN) {
+    logger.warn('AUTH_TOKEN not set - HTTP input endpoint is unauthenticated, do not expose it publicly like this')
+  }
+
+  const server = createServer(async (req, res) => {
+    try {
+      if (req.method === 'GET' && req.url === '/health') {
+        return sendJson(res, 200, { ok: true, connected: !!sock?.user })
+      }
+
+      if (req.method !== 'POST' || req.url !== '/commands') {
+        return sendJson(res, 404, { ok: false, error: 'Not found' })
+      }
+
+      if (!isAuthorized(req)) {
+        return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
+      }
+
+      if (!sock) {
+        return sendJson(res, 503, { ok: false, error: 'WhatsApp socket not ready' })
+      }
+
+      const contentLength = Number(req.headers['content-length'])
+      if (contentLength > HTTP_MAX_BODY_BYTES) {
+        return sendJson(res, 413, { ok: false, error: 'Payload too large' })
+      }
+
+      const cmd = await readJsonBody(req)
+
+      if (!cmd?.type || !cmd?.to) {
+        return sendJson(res, 400, { ok: false, error: 'Command must include "type" and "to"' })
+      }
+
+      await handleCommand(cmd)
+      return sendJson(res, 200, { ok: true })
+    } catch (err: any) {
+      logger.error({ err }, 'HTTP command error')
+      const status = err.message === 'Payload too large' ? 413 : 400
+      return sendJson(res, status, { ok: false, error: err.message || 'Internal error' })
+    }
+  })
+
+  server.listen(HTTP_PORT, HTTP_HOST, () => {
+    logger.info({ port: HTTP_PORT, host: HTTP_HOST }, 'HTTP input endpoint listening')
+  })
 }
 
 const pollLoop = async () => {
@@ -596,6 +718,7 @@ const main = async () => {
   }
 
   await startWhatsApp()
+  startHttpServer()
   pollLoop()
 }
 

@@ -55,6 +55,8 @@ services:
       dockerfile: Dockerfile.dev
     image: baileys-sqs-app-dev:latest
     container_name: baileys-sqs-app-dev
+    # ports:
+    #   - "3000:3000"  # only needed if PORT is set below
     command: >
       sh -c "npm install &&
              npx tsx watch --clear-screen=false index.ts"
@@ -82,6 +84,9 @@ services:
       - S3_ACCESS_KEY_ID=minioadmin
       - S3_SECRET_ACCESS_KEY=minioadmin
       - S3_FORCE_PATH_STYLE=true
+      # Optional: HTTP input endpoint, additive to the SQS input queue (see README)
+      # - PORT=3000
+      # - AUTH_TOKEN=change_me_to_a_long_random_value
     depends_on:
       - elasticmq
       - minio

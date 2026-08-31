@@ -51,6 +51,11 @@ services:
       - S3_ACCESS_KEY_ID=minioadmin
       - S3_SECRET_ACCESS_KEY=minioadmin
       - S3_FORCE_PATH_STYLE=true
+      # Optional: HTTP input endpoint, additive to the SQS input queue (see README)
+      # - PORT=3000
+      # - AUTH_TOKEN=change_me_to_a_long_random_value
+    # ports:
+    #   - "3000:3000"  # only needed if PORT is set above
     volumes:
       - ./docker-volumes/auth:/app/auth_info_baileys
     depends_on:
