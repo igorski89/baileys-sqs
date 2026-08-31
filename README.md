@@ -63,15 +63,64 @@ AWS_SECRET_ACCESS_KEY=your_secret_access_key
 INPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/input-queue
 OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 
+# Optional: override the AWS_* credentials/region/endpoint above for SQS only
+# (e.g. real AWS SQS while S3 media storage points at local MinIO)
+# SQS_REGION=us-east-1
+# SQS_ACCESS_KEY_ID=your_access_key_id
+# SQS_SECRET_ACCESS_KEY=your_secret_access_key
+# SQS_ENDPOINT_URL=http://localhost:9324
+
 # WhatsApp/Baileys Configuration
 SESSION_DIR=./auth_info_baileys
-BASE64_MEDIA=true
 LISTEN_EVENTS=*
 
 # Optional: Pin WhatsApp Web version (skips GitHub fetch)
 # Format: [major,minor,patch] as JSON array
 # WHATSAPP_VERSION=[2,3000,1035194821]
 ```
+
+### Media Storage (S3 / MinIO)
+
+By default, incoming media attachments are inlined into outgoing queue messages as base64 data.
+
+To upload attachments to an S3-compatible object store instead, configure an S3 bucket:
+
+```env
+S3_ENDPOINT_URL=http://localhost:9000
+S3_BUCKET=baileys-sqs-media
+S3_REGION=us-east-1
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+S3_FORCE_PATH_STYLE=true
+```
+
+When `S3_BUCKET` is provided, the connector uploads each attachment to the configured bucket and returns a **presigned URL** in the `_media.url` field of the outgoing message instead of `data_base64`.
+
+> **Note:** The S3 bucket is **not** created automatically — it must already exist and the configured credentials must have write access to it.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `S3_ENDPOINT_URL` | S3-compatible API endpoint | - |
+| `S3_PUBLIC_URL` | Host used for presigned URLs (optional; falls back to `S3_ENDPOINT_URL`) | - |
+| `S3_BUCKET` | Bucket name | - |
+| `S3_PREFIX` | Key prefix for uploaded objects | `baileys-sqs/media` |
+| `S3_REGION` | Region for the S3 client | `AWS_REGION` / `us-east-1` |
+| `S3_ACCESS_KEY_ID` | Access key | `AWS_ACCESS_KEY_ID` |
+| `S3_SECRET_ACCESS_KEY` | Secret key | `AWS_SECRET_ACCESS_KEY` |
+| `S3_FORCE_PATH_STYLE` | Use path-style URLs (required for MinIO) | `true` when endpoint is set |
+| `S3_URL_EXPIRATION_SECONDS` | Presigned URL lifetime in seconds | `604800` (7 days) |
+
+`S3_*` and `SQS_*` credentials/region/endpoint are independent overrides of the generic `AWS_*` variables — set either, both, or neither. This lets SQS talk to real AWS while S3 points at a local MinIO instance (or vice versa) without one config clobbering the other.
+
+#### Local Testing with MinIO
+
+Both Docker Compose files include a ready-to-use [MinIO](https://min.io/) service:
+
+- S3 API: http://localhost:9000
+- MinIO Console: http://localhost:9001 (login: `minioadmin` / `minioadmin`)
+- Preconfigured bucket: `baileys-sqs-media`
+
+When a media message is received, the listener will display the storage type and the returned URL.
 
 ## Usage
 
@@ -312,7 +361,7 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 
 ```
 baileys-sqs/
-├── index.ts                       # Main application entry point
+├── index.ts                       # Main application entry point (SQS + WhatsApp + media handling)
 ├── listener.ts                    # Output queue listener (QR renderer + pretty print)
 ├── sender.ts                      # CLI tool to send WhatsApp messages
 ├── package.json                   # Dependencies and scripts
@@ -333,7 +382,9 @@ baileys-sqs/
 
 - **[@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)** - WhatsApp Web API (v7.0.0-rc.9)
 - **[@aws-sdk/client-sqs](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/sqs/)** - AWS SQS SDK v3
+- **[@aws-sdk/client-s3](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/)** - AWS S3 SDK v3
 - **[ElasticMQ](https://github.com/softwaremill/elasticmq)** - SQS-compatible message queue for local development
+- **[MinIO](https://min.io/)** - S3-compatible object storage for local media uploads
 - **TypeScript** - Type-safe JavaScript
 - **[tsx](https://github.com/privatenumber/tsx)** - TypeScript execution for ESM
 - **Docker** - Containerization

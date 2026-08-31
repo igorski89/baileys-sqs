@@ -30,7 +30,9 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys#master",
+    "@aws-sdk/client-s3": "^3.450.0",
     "@aws-sdk/client-sqs": "^3.450.0",
+    "@aws-sdk/s3-request-presigner": "^3.450.0",
     "@hapi/boom": "^10.0.1",
     "@cacheable/node-cache": "^1.5.3",
     "link-preview-js": "^3.0.5",

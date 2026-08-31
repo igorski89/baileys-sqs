@@ -19,15 +19,51 @@ import {
   ReceiveMessageCommand,
   DeleteMessageCommand
 } from '@aws-sdk/client-sqs'
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  S3ClientConfig
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+
 
 // ================= ENV =================
 
 const INPUT_QUEUE = process.env.INPUT_QUEUE!
 const OUTPUT_QUEUE = process.env.OUTPUT_QUEUE!
 const SESSION_DIR = process.env.SESSION_DIR || './auth'
-const BASE64_MEDIA = process.env.BASE64_MEDIA !== 'false'
 const USE_PAIRING_CODE = process.env.USE_PAIRING_CODE === 'true'
 const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION
+
+// SQS_* variables override the generic AWS_* ones so SQS can point at a
+// different account/region/endpoint than S3 (e.g. real AWS SQS + local MinIO).
+const SQS_REGION = process.env.SQS_REGION || process.env.AWS_REGION || 'us-east-1'
+const SQS_ENDPOINT_URL = process.env.SQS_ENDPOINT_URL || process.env.AWS_ENDPOINT_URL
+const sqsAccessKeyId = process.env.SQS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID
+const sqsSecretAccessKey =
+  process.env.SQS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY
+
+// S3_* variables override the generic AWS_* ones so S3 can point at a
+// different account/region/endpoint than SQS (e.g. real AWS SQS + local MinIO).
+const S3_BUCKET = process.env.S3_BUCKET
+const S3_PREFIX = (process.env.S3_PREFIX || 'baileys-sqs/media').replace(/\/$/, '')
+const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1'
+const S3_ENDPOINT_URL = process.env.S3_ENDPOINT_URL
+const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL
+const S3_URL_EXPIRATION_SECONDS = parseInt(
+  process.env.S3_URL_EXPIRATION_SECONDS || '604800',
+  10
+)
+
+const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID
+const s3SecretAccessKey =
+  process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY
+
+// Use path-style addressing by default when a custom endpoint is provided
+// (required for MinIO and most S3-compatible services).
+const s3ForcePathStyle =
+  process.env.S3_FORCE_PATH_STYLE === 'true' || !!S3_ENDPOINT_URL
 
 const RAW_EVENTS = process.env.LISTEN_EVENTS || '*'
 const LISTEN_EVENTS =
@@ -53,9 +89,43 @@ const logger = P({
 // ================= AWS =================
 
 const sqs = new SQSClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  endpoint: process.env.AWS_ENDPOINT_URL
+  region: SQS_REGION,
+  endpoint: SQS_ENDPOINT_URL,
+  ...(sqsAccessKeyId && sqsSecretAccessKey
+    ? { credentials: { accessKeyId: sqsAccessKeyId, secretAccessKey: sqsSecretAccessKey } }
+    : {})
 })
+
+// ================= S3 =================
+
+const buildS3ClientConfig = (endpointUrl?: string): S3ClientConfig => {
+  const config: S3ClientConfig = {
+    region: S3_REGION,
+    forcePathStyle: s3ForcePathStyle
+  }
+
+  if (endpointUrl) {
+    config.endpoint = endpointUrl
+  }
+
+  if (s3AccessKeyId && s3SecretAccessKey) {
+    config.credentials = {
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey
+    }
+  }
+
+  return config
+}
+
+// Client used for upload operations (e.g. PutObject).
+const s3Ops = new S3Client(buildS3ClientConfig(S3_ENDPOINT_URL))
+
+// Separate client used for generating presigned URLs so that the public URL
+// can differ from the internal SDK endpoint (common in Docker/local setups).
+const s3Sign = new S3Client(
+  buildS3ClientConfig(S3_PUBLIC_URL || S3_ENDPOINT_URL)
+)
 
 const sendToQueue = async (body: any) => {
   try {
@@ -77,37 +147,6 @@ const normalizeJid = (to: string) => {
   // Remove + prefix and any spaces from phone number
   const cleanNumber = to.replace(/[\s+]/g, '')
   return `${cleanNumber}@s.whatsapp.net`
-}
-
-const getMediaType = (msg: any) => {
-  const m = msg.message || {}
-  if (m.imageMessage) return 'image'
-  if (m.videoMessage) return 'video'
-  if (m.audioMessage) return 'audio'
-  if (m.documentMessage) return 'document'
-  return null
-}
-
-// ===== Incoming media → base64 =====
-const extractMedia = async (msg: any) => {
-  if (!BASE64_MEDIA) return null
-
-  const type = getMediaType(msg)
-  if (!type) return null
-
-  try {
-    const buffer = await downloadMediaMessage(msg, 'buffer', {})
-    if (!buffer) return null
-
-    return {
-      type,
-      mimetype: msg.message?.[`${type}Message`]?.mimetype,
-      data_base64: buffer.toString('base64')
-    }
-  } catch (err) {
-    logger.error({ err, msgId: msg.key?.id }, 'Failed to extract media')
-    return null
-  }
 }
 
 // ===== URL fetch with timeout =====
@@ -140,6 +179,102 @@ const resolveMediaBuffer = async (media: any): Promise<Buffer> => {
   }
 
   throw new Error('Media must include either data_base64 or url')
+}
+
+// ===== Media type detection =====
+const getMediaType = (msg: any): 'image' | 'video' | 'audio' | 'document' | null => {
+  const m = msg.message || {}
+  if (m.imageMessage) return 'image'
+  if (m.videoMessage) return 'video'
+  if (m.audioMessage) return 'audio'
+  if (m.documentMessage) return 'document'
+  return null
+}
+
+const extensionFromMimetype = (mimetype?: string): string => {
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/ogg': 'ogv',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'application/pdf': 'pdf'
+  }
+
+  if (!mimetype) return 'bin'
+  return map[mimetype] || mimetype.split('/').pop() || 'bin'
+}
+
+const uploadMediaToS3 = async (
+  type: string,
+  mimetype: string | undefined,
+  buffer: Buffer,
+  msgId?: string
+): Promise<{ url: string; key: string }> => {
+  if (!S3_BUCKET) {
+    throw new Error('S3_BUCKET is not configured')
+  }
+
+  const ext = extensionFromMimetype(mimetype)
+  const key = `${S3_PREFIX}/${type}/${Date.now()}-${msgId || Math.random().toString(36).slice(2)}.${ext}`
+
+  await s3Ops.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: mimetype || 'application/octet-stream'
+    })
+  )
+
+  const url = await getSignedUrl(
+    s3Sign,
+    new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }),
+    { expiresIn: S3_URL_EXPIRATION_SECONDS }
+  )
+
+  logger.debug({ bucket: S3_BUCKET, key, type }, 'Uploaded media to S3')
+
+  return { url, key }
+}
+
+// ===== Incoming media → base64 or S3 URL =====
+const extractMedia = async (msg: any) => {
+  const type = getMediaType(msg)
+  if (!type) return null
+
+  try {
+    const buffer = await downloadMediaMessage(msg, 'buffer', {})
+    if (!buffer) return null
+
+    const mimetype = msg.message?.[`${type}Message`]?.mimetype
+
+    if (S3_BUCKET) {
+      const { url, key } = await uploadMediaToS3(type, mimetype, buffer, msg.key?.id)
+      return {
+        type,
+        mimetype,
+        url,
+        s3_key: key,
+        storage: 's3'
+      }
+    }
+
+    return {
+      type,
+      mimetype,
+      data_base64: buffer.toString('base64'),
+      storage: 'base64'
+    }
+  } catch (err) {
+    logger.error({ err, msgId: msg.key?.id }, 'Failed to extract media')
+    return null
+  }
 }
 
 // external map to store retry counts of messages when decryption/encryption fails

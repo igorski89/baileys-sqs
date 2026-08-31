@@ -13,6 +13,41 @@ services:
     networks:
       - baileys-sqs-network
 
+  # MinIO - S3-compatible object storage for local media uploads
+  minio:
+    container_name: baileys-sqs-minio-dev
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"  # S3 API port
+      - "9001:9001"  # MinIO Console port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - ./docker-volumes/minio:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - baileys-sqs-network
+
+  # MinIO bucket creation helper (one-shot init container)
+  minio-create-bucket:
+    container_name: baileys-sqs-minio-create-bucket-dev
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    entrypoint: >
+      /bin/sh -c "
+        sleep 5 &&
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        mc mb local/baileys-sqs-media --ignore-existing &&
+        mc anonymous set download local/baileys-sqs-media
+      "
+    networks:
+      - baileys-sqs-network
+
   # Baileys SQS Application - Development mode with hot reload
   app:
     build:
@@ -41,8 +76,15 @@ services:
       - SESSION_DIR=/app/auth_info_baileys
       - LOG_LEVEL=debug
       - WHATSAPP_VERSION=[2, 3000, 1036200034]
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_BUCKET=baileys-sqs-media
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY_ID=minioadmin
+      - S3_SECRET_ACCESS_KEY=minioadmin
+      - S3_FORCE_PATH_STYLE=true
     depends_on:
       - elasticmq
+      - minio
     networks:
       - baileys-sqs-network
     stdin_open: true

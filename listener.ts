@@ -87,7 +87,8 @@ const prettyPrintMessage = (msg: any) => {
   
   const content = extractMessageContent(msg)
   const hasMedia = msg._media ? " 📎" : ""
-  
+  const mediaStorage = msg._media?.storage || "base64"
+
   console.log("\n")
   log(directionColor, `┌─────────────────────────────────────────────────────────────┐`)
   log(directionColor, `│ ${direction}  ID: ${messageId} ${" ".repeat(39 - messageId.length)}│`)
@@ -128,6 +129,18 @@ const prettyPrintMessage = (msg: any) => {
   if (hasMedia) {
     log(directionColor, `│ ${" ".repeat(58)}│`)
     log(directionColor, `│ ${hasMedia} [${msg._media?.type} - ${msg._media?.mimetype}]`.padEnd(60) + "│")
+    log(directionColor, `│ Storage: ${mediaStorage.padEnd(50)}│`)
+    if (msg._media?.url) {
+      const urlLabel = "URL: "
+      const url = msg._media.url
+      const available = maxLineLength - urlLabel.length
+      if (url.length <= available) {
+        log(directionColor, `│ ${urlLabel}${url.padEnd(50)}│`)
+      } else {
+        log(directionColor, `│ ${urlLabel}${url.substring(0, available).padEnd(50)}│`)
+        log(directionColor, `│ ${url.substring(available).padEnd(59)}│`)
+      }
+    }
   }
   
   log(directionColor, `└─────────────────────────────────────────────────────────────┘`)
