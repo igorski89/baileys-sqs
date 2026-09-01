@@ -249,6 +249,30 @@ docker build -t baileys-sqs .
 docker run --env-file .env baileys-sqs
 ```
 
+### Multi-Platform Build (amd64 + arm64)
+
+The plain `docker build` above only produces an image for your local machine's architecture. To build and push an image that runs on both `linux/amd64` and `linux/arm64` (e.g. Intel/AMD servers and Apple Silicon/ARM), use `docker buildx`:
+
+```bash
+# One-time: create a builder that supports multi-platform output
+docker buildx create --name baileys-sqs-builder --driver docker-container --use
+
+# Build for both platforms and push the manifest list to a registry
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t <registry>/<namespace>/baileys-sqs:latest \
+  --push \
+  .
+```
+
+Replace `<registry>/<namespace>` with your target, e.g. `docker.io/yourusername`, `ghcr.io/yourusername`, or a private registry host. `--push` is required for multi-platform builds — the `docker` image store can't load more than one platform locally, so `-o type=docker` / the default local load won't work with `--platform` set to multiple values.
+
+Verify the pushed manifest actually contains both platforms:
+
+```bash
+docker buildx imagetools inspect <registry>/<namespace>/baileys-sqs:latest
+```
+
 ### Production with AWS SQS
 
 Configure your `.env` with actual AWS credentials and SQS queue URLs:
