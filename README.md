@@ -102,7 +102,6 @@ The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`
 | `PORT` | Enables the HTTP endpoint when set | disabled |
 | `HTTP_HOST` | Bind address | `0.0.0.0` |
 | `AUTH_TOKEN` | Bearer token required in `Authorization: Bearer <token>` | none (unauthenticated) |
-| `HTTP_MAX_BODY_BYTES` | Max request body size in bytes | `10485760` (10 MiB) |
 
 > **Note:** If `AUTH_TOKEN` is not set, the endpoint accepts unauthenticated requests. Only run it without a token on a trusted network, and always set `AUTH_TOKEN` before exposing the port publicly.
 

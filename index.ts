@@ -73,7 +73,6 @@ const s3ForcePathStyle =
 const HTTP_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined
 const HTTP_HOST = process.env.HTTP_HOST || '0.0.0.0'
 const HTTP_AUTH_TOKEN = process.env.AUTH_TOKEN
-const HTTP_MAX_BODY_BYTES = parseInt(process.env.HTTP_MAX_BODY_BYTES || `${10 * 1024 * 1024}`, 10)
 
 const RAW_EVENTS = process.env.LISTEN_EVENTS || '*'
 const LISTEN_EVENTS =
@@ -560,16 +559,9 @@ const handleCommand = async (cmd: any) => {
 
 const readJsonBody = (req: IncomingMessage): Promise<any> => {
   return new Promise((resolve, reject) => {
-    let size = 0
     const chunks: Buffer[] = []
 
     req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > HTTP_MAX_BODY_BYTES) {
-        reject(new Error('Payload too large'))
-        req.destroy()
-        return
-      }
       chunks.push(chunk)
     })
 
@@ -639,11 +631,6 @@ const startHttpServer = () => {
         return sendJson(res, 503, { ok: false, error: 'WhatsApp socket not ready' })
       }
 
-      const contentLength = Number(req.headers['content-length'])
-      if (contentLength > HTTP_MAX_BODY_BYTES) {
-        return sendJson(res, 413, { ok: false, error: 'Payload too large' })
-      }
-
       const cmd = await readJsonBody(req)
 
       if (!cmd?.type || !cmd?.to) {
@@ -654,8 +641,7 @@ const startHttpServer = () => {
       return sendJson(res, 200, { ok: true })
     } catch (err: any) {
       logger.error({ err }, 'HTTP command error')
-      const status = err.message === 'Payload too large' ? 413 : 400
-      return sendJson(res, status, { ok: false, error: err.message || 'Internal error' })
+      return sendJson(res, 400, { ok: false, error: err.message || 'Internal error' })
     }
   })
 
