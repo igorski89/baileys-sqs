@@ -552,6 +552,25 @@ const handleCommand = async (cmd: any) => {
     return
   }
 
+  if (cmd.type === 'send_presence') {
+    const VALID_PRESENCE = ['composing', 'recording', 'paused']
+    if (!VALID_PRESENCE.includes(cmd.presence)) {
+      throw new Error(`Invalid presence: ${cmd.presence}. Must be one of ${VALID_PRESENCE.join(', ')}`)
+    }
+
+    // Required for the update to reliably show up on the recipient's side -
+    // best-effort, since it depends on the contact's privacy settings.
+    try {
+      await sock.presenceSubscribe(jid)
+    } catch (err) {
+      logger.warn({ err, jid }, 'presenceSubscribe failed, sending presence update anyway')
+    }
+
+    await sock.sendPresenceUpdate(cmd.presence, jid)
+    logger.debug({ jid, presence: cmd.presence }, 'sent presence update')
+    return
+  }
+
   throw new Error(`Unknown command type: ${cmd.type}`)
 }
 
