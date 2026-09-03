@@ -95,7 +95,7 @@ curl -X POST http://localhost:3000/commands \
   -d '{"type":"send_text","to":"+1234567890","text":"Hello from HTTP!"}'
 ```
 
-The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
+The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
 
 Since SQS doesn't guarantee ordering, sending a typing indicator (`send_presence`) and then a `send_text` reply through SQS can arrive out of order at WhatsApp. Sending both through this HTTP endpoint sequentially avoids that:
 
@@ -114,6 +114,13 @@ curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKE
 ```bash
 curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"type":"send_reaction","to":"+1234567890","reaction":"👍","message_key":{"id":"3EB0...","fromMe":false}}'
+```
+
+`send_read_receipt` marks one or more incoming messages as read (blue ticks). Pass a single `message_key` or a `message_keys` array — same key shape as `send_reaction`:
+
+```bash
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_read_receipt","to":"+1234567890","message_key":{"id":"3EB0...","fromMe":false}}'
 ```
 
 | Variable | Description | Default |

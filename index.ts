@@ -596,6 +596,26 @@ const handleCommand = async (cmd: any) => {
     return
   }
 
+  if (cmd.type === 'send_read_receipt') {
+    const keys = cmd.message_keys || (cmd.message_key ? [cmd.message_key] : [])
+    if (!Array.isArray(keys) || keys.length === 0 || keys.some((k: any) => !k?.id)) {
+      throw new Error('send_read_receipt requires "message_keys" (array) or "message_key" (single), each with an "id" field')
+    }
+
+    // readMessages checks the recipient's read-receipt privacy setting itself
+    // and sends a "read" or "read-self" receipt as appropriate.
+    await sock.readMessages(
+      keys.map((k: any) => ({
+        remoteJid: k.remoteJid || jid,
+        fromMe: !!k.fromMe,
+        id: k.id,
+        participant: k.participant
+      }))
+    )
+    logger.debug({ jid, count: keys.length }, 'sent read receipt')
+    return
+  }
+
   throw new Error(`Unknown command type: ${cmd.type}`)
 }
 
