@@ -1,4 +1,3 @@
-import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
   CacheStore,
@@ -366,7 +365,7 @@ const startWhatsApp = async () => {
         }
 
         if (connection === 'close') {
-          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode
+          const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
           logger.error({ statusCode, shouldReconnect }, 'Connection closed')
