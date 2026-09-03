@@ -571,6 +571,31 @@ const handleCommand = async (cmd: any) => {
     return
   }
 
+  if (cmd.type === 'send_reaction') {
+    if (typeof cmd.reaction !== 'string') {
+      throw new Error('send_reaction requires a "reaction" string (use an empty string to remove a reaction)')
+    }
+
+    const messageKey = cmd.message_key
+    if (!messageKey?.id) {
+      throw new Error('send_reaction requires "message_key" with at least an "id" field')
+    }
+
+    await sock.sendMessage(jid, {
+      react: {
+        text: cmd.reaction,
+        key: {
+          remoteJid: messageKey.remoteJid || jid,
+          fromMe: !!messageKey.fromMe,
+          id: messageKey.id,
+          participant: messageKey.participant
+        }
+      }
+    })
+    logger.debug({ jid, reaction: cmd.reaction, messageId: messageKey.id }, 'sent reaction')
+    return
+  }
+
   throw new Error(`Unknown command type: ${cmd.type}`)
 }
 
