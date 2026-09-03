@@ -621,6 +621,51 @@ const handleCommand = async (cmd: any) => {
     return
   }
 
+  if (cmd.type === 'send_edit') {
+    if (typeof cmd.text !== 'string') {
+      throw new Error('send_edit requires a "text" string')
+    }
+
+    const messageKey = cmd.message_key
+    if (!messageKey?.id) {
+      throw new Error('send_edit requires "message_key" with at least an "id" field')
+    }
+
+    await sock.sendMessage(jid, {
+      text: cmd.text,
+      // Only your own messages can be edited - default to true unless the
+      // caller explicitly says otherwise.
+      edit: {
+        remoteJid: messageKey.remoteJid || jid,
+        fromMe: messageKey.fromMe !== undefined ? !!messageKey.fromMe : true,
+        id: messageKey.id,
+        participant: messageKey.participant
+      }
+    })
+    logger.debug({ jid, messageId: messageKey.id }, 'edited message')
+    return
+  }
+
+  if (cmd.type === 'send_delete') {
+    const messageKey = cmd.message_key
+    if (!messageKey?.id) {
+      throw new Error('send_delete requires "message_key" with at least an "id" field')
+    }
+
+    await sock.sendMessage(jid, {
+      // Deletes your own message, or anyone's in a group if you're admin -
+      // default to true (your own message) unless told otherwise.
+      delete: {
+        remoteJid: messageKey.remoteJid || jid,
+        fromMe: messageKey.fromMe !== undefined ? !!messageKey.fromMe : true,
+        id: messageKey.id,
+        participant: messageKey.participant
+      }
+    })
+    logger.debug({ jid, messageId: messageKey.id }, 'deleted message')
+    return
+  }
+
   throw new Error(`Unknown command type: ${cmd.type}`)
 }
 

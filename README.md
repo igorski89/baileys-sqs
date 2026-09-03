@@ -95,7 +95,7 @@ curl -X POST http://localhost:3000/commands \
   -d '{"type":"send_text","to":"+1234567890","text":"Hello from HTTP!"}'
 ```
 
-The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
+The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt`, `send_edit`, `send_delete` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
 
 `send_media`'s `media.type` is one of `image`, `video`, `audio`, `sticker`, or `document` (default). Stickers must already be WebP-encoded (ideally 512×512, static or animated) — WhatsApp won't convert a JPEG/PNG into a sticker for you, so any format conversion needs to happen before calling `send_media`. `media.mimetype` is optional for every type; when omitted, Baileys falls back to the correct default per type (`image/webp` for stickers, `application/pdf` for documents, etc.) rather than a generic one.
 
@@ -123,6 +123,16 @@ curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKE
 ```bash
 curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"type":"send_read_receipt","to":"+1234567890","message_key":{"id":"3EB0...","fromMe":false}}'
+```
+
+`send_edit` replaces the text of a message you already sent, and `send_delete` revokes it (or, with admin rights, anyone's message in a group). Unlike `send_reaction`/`send_read_receipt`, `message_key.fromMe` defaults to `true` here — WhatsApp only lets you edit/delete your own messages by default, so most calls will target something baileys-sqs sent earlier:
+
+```bash
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_edit","to":"+1234567890","text":"corrected text","message_key":{"id":"3EB0..."}}'
+
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_delete","to":"+1234567890","message_key":{"id":"3EB0..."}}'
 ```
 
 | Variable | Description | Default |
