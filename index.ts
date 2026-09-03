@@ -477,6 +477,19 @@ const startWhatsApp = async () => {
 
 // ================= INPUT QUEUE =================
 
+// Baileys requires 'quoted' to be a full WAMessage with both 'key' and
+// 'message' - strip it if a caller sends an incomplete one to avoid a crash.
+const sanitizeQuotedOption = (options: any) => {
+  if (options.quoted && !options.quoted.message) {
+    logger.warn({
+      quotedKeys: Object.keys(options.quoted),
+      hasKey: !!options.quoted.key,
+      hasMessage: !!options.quoted.message
+    }, 'quoted object missing message property - stripping to prevent crash')
+    delete options.quoted
+  }
+}
+
 const handleCommand = async (cmd: any) => {
   if (!sock) {
     logger.error('Socket not initialized')
@@ -486,19 +499,8 @@ const handleCommand = async (cmd: any) => {
   const jid = normalizeJid(cmd.to)
 
   if (cmd.type === 'send_text') {
-    // Validate and sanitize options
     const options = cmd.options || {}
-    if (options.quoted) {
-      // Baileys requires quoted to be a full WAMessage with both 'key' and 'message'
-      if (!options.quoted.message) {
-        logger.warn({
-          quotedKeys: Object.keys(options.quoted),
-          hasKey: !!options.quoted.key,
-          hasMessage: !!options.quoted.message
-        }, 'quoted object missing message property - stripping to prevent crash')
-        delete options.quoted
-      }
-    }
+    sanitizeQuotedOption(options)
 
     // If client provides full message object, use it directly; otherwise use text
     const messageContent = cmd.message || { text: cmd.text }
@@ -538,19 +540,8 @@ const handleCommand = async (cmd: any) => {
     else if (media.type === 'sticker') message.sticker = buffer
     else message.document = buffer
 
-    // Validate and sanitize options
     const options = cmd.options || {}
-    if (options.quoted) {
-      // Baileys requires quoted to be a full WAMessage with both 'key' and 'message'
-      if (!options.quoted.message) {
-        logger.warn({
-          quotedKeys: Object.keys(options.quoted),
-          hasKey: !!options.quoted.key,
-          hasMessage: !!options.quoted.message
-        }, 'quoted object missing message property - stripping to prevent crash')
-        delete options.quoted
-      }
-    }
+    sanitizeQuotedOption(options)
 
     await sock.sendMessage(jid, message, options)
     logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
@@ -714,6 +705,22 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, question: poll.name, optionCount: poll.values.length }, 'sent poll')
+    return
+  }
+
+  if (cmd.type === 'raw') {
+    // Escape hatch: passes "body" straight through as sock.sendMessage's
+    // content argument, for any Baileys message shape without a dedicated
+    // command type yet (buttons, lists, albums, view-once, ...).
+    if (typeof cmd.body !== 'object' || cmd.body === null || Array.isArray(cmd.body)) {
+      throw new Error('raw requires a "body" object to pass directly to sock.sendMessage')
+    }
+
+    const options = cmd.options || {}
+    sanitizeQuotedOption(options)
+
+    await sock.sendMessage(jid, cmd.body, options)
+    logger.debug({ jid, bodyKeys: Object.keys(cmd.body) }, 'sent raw message')
     return
   }
 
