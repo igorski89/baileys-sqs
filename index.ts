@@ -523,14 +523,19 @@ const handleCommand = async (cmd: any) => {
       delete message.conversation
     }
 
-    // Always set mimetype and fileName
-    message.mimetype = media.mimetype || 'application/octet-stream'
+    // Only override mimetype when the caller explicitly provides one -
+    // otherwise let Baileys fall back to the correct per-type default
+    // (e.g. image/webp for stickers, application/pdf for documents).
+    if (media.mimetype) {
+      message.mimetype = media.mimetype
+    }
     message.fileName = media.filename || 'file'
 
     // Override/add the media buffer based on type
     if (media.type === 'image') message.image = buffer
     else if (media.type === 'video') message.video = buffer
     else if (media.type === 'audio') message.audio = buffer
+    else if (media.type === 'sticker') message.sticker = buffer
     else message.document = buffer
 
     // Validate and sanitize options
