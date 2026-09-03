@@ -666,6 +666,57 @@ const handleCommand = async (cmd: any) => {
     return
   }
 
+  if (cmd.type === 'send_location') {
+    const location = cmd.location
+    if (typeof location?.latitude !== 'number' || typeof location?.longitude !== 'number') {
+      throw new Error('send_location requires "location" with numeric "latitude" and "longitude"')
+    }
+
+    await sock.sendMessage(jid, {
+      location: {
+        degreesLatitude: location.latitude,
+        degreesLongitude: location.longitude,
+        name: location.name,
+        address: location.address
+      }
+    })
+    logger.debug({ jid, latitude: location.latitude, longitude: location.longitude }, 'sent location')
+    return
+  }
+
+  if (cmd.type === 'send_contact') {
+    const contacts = cmd.contacts || (cmd.contact ? [cmd.contact] : [])
+    if (!Array.isArray(contacts) || contacts.length === 0 || contacts.some((c: any) => !c?.vcard)) {
+      throw new Error('send_contact requires "contacts" (array) or "contact" (single), each with a "vcard" string')
+    }
+
+    await sock.sendMessage(jid, {
+      contacts: {
+        displayName: contacts.length === 1 ? contacts[0].displayName : undefined,
+        contacts: contacts.map((c: any) => ({ displayName: c.displayName, vcard: c.vcard }))
+      }
+    })
+    logger.debug({ jid, count: contacts.length }, 'sent contact')
+    return
+  }
+
+  if (cmd.type === 'send_poll') {
+    const poll = cmd.poll
+    if (typeof poll?.name !== 'string' || !Array.isArray(poll?.values) || poll.values.length < 2) {
+      throw new Error('send_poll requires "poll" with a "name" string and at least 2 "values"')
+    }
+
+    await sock.sendMessage(jid, {
+      poll: {
+        name: poll.name,
+        values: poll.values,
+        selectableCount: poll.selectableCount
+      }
+    })
+    logger.debug({ jid, question: poll.name, optionCount: poll.values.length }, 'sent poll')
+    return
+  }
+
   throw new Error(`Unknown command type: ${cmd.type}`)
 }
 

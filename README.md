@@ -95,7 +95,7 @@ curl -X POST http://localhost:3000/commands \
   -d '{"type":"send_text","to":"+1234567890","text":"Hello from HTTP!"}'
 ```
 
-The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt`, `send_edit`, `send_delete` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
+The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt`, `send_edit`, `send_delete`, `send_location`, `send_contact`, `send_poll` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
 
 `send_media`'s `media.type` is one of `image`, `video`, `audio`, `sticker`, or `document` (default). Stickers must already be WebP-encoded (ideally 512×512, static or animated) — WhatsApp won't convert a JPEG/PNG into a sticker for you, so any format conversion needs to happen before calling `send_media`. `media.mimetype` is optional for every type; when omitted, Baileys falls back to the correct default per type (`image/webp` for stickers, `application/pdf` for documents, etc.) rather than a generic one.
 
@@ -134,6 +134,21 @@ curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKE
 curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"type":"send_delete","to":"+1234567890","message_key":{"id":"3EB0..."}}'
 ```
+
+`send_location`, `send_contact`, and `send_poll` send structured content beyond text/media:
+
+```bash
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_location","to":"+1234567890","location":{"latitude":37.4220,"longitude":-122.0841,"name":"Googleplex"}}'
+
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_contact","to":"+1234567890","contact":{"displayName":"Jane Doe","vcard":"BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nTEL;TYPE=CELL:+1234567890\nEND:VCARD"}}'
+
+curl -X POST http://localhost:3000/commands -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"send_poll","to":"+1234567890","poll":{"name":"Pick one","values":["Option A","Option B"],"selectableCount":1}}'
+```
+
+`send_location` requires numeric `latitude`/`longitude`; `name`/`address` are optional labels. `send_contact` takes a single `contact` (`vcard` required, standard vCard format) or a `contacts` array for multiple. `send_poll` requires `name` (the question) and at least two `values`; `selectableCount` defaults to `0` (unlimited selections) if omitted.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
