@@ -1,4 +1,5 @@
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
+import { randomUUID } from 'node:crypto'
 import readline from 'readline'
 
 // ================= ENV =================
@@ -6,6 +7,10 @@ import readline from 'readline'
 const INPUT_QUEUE = process.env.INPUT_QUEUE!
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1'
 const AWS_ENDPOINT_URL = process.env.AWS_ENDPOINT_URL
+
+// FIFO queues (name contains "fifo", e.g. ending in ".fifo") require
+// MessageGroupId + MessageDeduplicationId on every send.
+const INPUT_QUEUE_IS_FIFO = INPUT_QUEUE?.toLowerCase().includes('fifo')
 
 // ================= AWS =================
 
@@ -17,9 +22,10 @@ const sqs = new SQSClient({
 // ================= HELPERS =================
 
 const sendTextMessage = async (to: string, text: string) => {
+  const cleanTo = to.replace(/[\s+]/g, '') // Remove spaces and + prefix
   const message = {
     type: 'send_text',
-    to: to.replace(/[\s+]/g, ''), // Remove spaces and + prefix
+    to: cleanTo,
     text
   }
 
@@ -27,7 +33,15 @@ const sendTextMessage = async (to: string, text: string) => {
     await sqs.send(
       new SendMessageCommand({
         QueueUrl: INPUT_QUEUE,
-        MessageBody: JSON.stringify(message)
+        MessageBody: JSON.stringify(message),
+        ...(INPUT_QUEUE_IS_FIFO
+          ? {
+              // Group by recipient so commands to the same chat stay
+              // ordered, while different chats process independently.
+              MessageGroupId: cleanTo,
+              MessageDeduplicationId: randomUUID()
+            }
+          : {})
       })
     )
     console.log(`✅ Message queued: ${to} - "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`)

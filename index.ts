@@ -26,7 +26,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createServer, IncomingMessage, ServerResponse } from 'node:http'
-import { timingSafeEqual } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 
 
 // ================= ENV =================
@@ -135,12 +135,45 @@ const s3Sign = new S3Client(
   buildS3ClientConfig(S3_PUBLIC_URL || S3_ENDPOINT_URL)
 )
 
+// FIFO queues (name contains "fifo", e.g. ending in ".fifo") require
+// MessageGroupId + MessageDeduplicationId on every send. Standard queues
+// reject these fields, so they're only added when the queue is FIFO.
+const isFifoQueue = (queueUrl: string) => !!queueUrl?.toLowerCase().includes('fifo')
+
+const OUTPUT_QUEUE_IS_FIFO = isFifoQueue(OUTPUT_QUEUE)
+
+// Groups events by chat so ordering is preserved per-conversation while
+// independent chats can still be processed in parallel by the consumer.
+// Falls back to the event type for events with no chat (qr, connection, ...).
+// Note: a single messages.upsert batch can - rarely, e.g. during initial
+// history sync - contain messages from multiple chats; this groups the
+// whole batch by the first message's chat as a best-effort approximation.
+const getFifoGroupId = (body: any): string => {
+  const upsertJid = body?.payload?.messages?.[0]?.key?.remoteJid
+  if (upsertJid) return upsertJid
+
+  const updateJid = Array.isArray(body?.payload) && body.payload[0]?.key?.remoteJid
+  if (updateJid) return updateJid
+
+  if (body?.event === 'presence.update' && body?.payload?.id) {
+    return body.payload.id
+  }
+
+  return body?.type === 'baileys_event' ? body.event : (body?.type || 'system')
+}
+
 const sendToQueue = async (body: any) => {
   try {
     await sqs.send(
       new SendMessageCommand({
         QueueUrl: OUTPUT_QUEUE,
-        MessageBody: JSON.stringify(body)
+        MessageBody: JSON.stringify(body),
+        ...(OUTPUT_QUEUE_IS_FIFO
+          ? {
+              MessageGroupId: getFifoGroupId(body),
+              MessageDeduplicationId: randomUUID()
+            }
+          : {})
       })
     )
   } catch (err) {

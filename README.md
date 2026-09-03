@@ -208,6 +208,43 @@ Both Docker Compose files include a ready-to-use [MinIO](https://min.io/) servic
 
 When a media message is received, the listener will display the storage type and the returned URL.
 
+### FIFO Queue Support
+
+Standard SQS queues don't guarantee ordering — a common source of confusion since ElasticMQ's single-node design can *appear* to preserve order in simple local testing, then reorder messages once deployed against real AWS SQS. If ordering matters (e.g. a typing indicator arriving after the message it precedes), use a FIFO queue instead.
+
+FIFO is auto-detected by name: if `"fifo"` appears anywhere in `INPUT_QUEUE` or `OUTPUT_QUEUE` (case-insensitive — the standard convention is a `.fifo` suffix), baileys-sqs automatically adds the `MessageGroupId` and `MessageDeduplicationId` every FIFO `SendMessage` call requires. No extra environment variables needed — just point `INPUT_QUEUE`/`OUTPUT_QUEUE` at a `.fifo` queue.
+
+```env
+INPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/input-queue.fifo
+OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue.fifo
+```
+
+**`MessageDeduplicationId`** is always a fresh random UUID per send, since FIFO's 5-minute dedup window exists to catch duplicate *SendMessage* API calls (e.g. an SDK-level retry), not to deduplicate distinct WhatsApp events.
+
+**`MessageGroupId`** — FIFO only guarantees order *within* a group, so the id is chosen to keep each conversation ordered while letting independent conversations process in parallel:
+
+| Producer → queue | Group id | Source |
+|---|---|---|
+| `sender.ts` → `INPUT_QUEUE` | the recipient (`to`) | the command you're sending |
+| `index.ts` → `OUTPUT_QUEUE`, chat events (`messages.upsert`/`messages.update`) | the chat (`remoteJid`) | the WhatsApp message itself |
+| `index.ts` → `OUTPUT_QUEUE`, `presence.update` | the contact/chat (`id`) | the presence payload |
+| `index.ts` → `OUTPUT_QUEUE`, everything else (`qr`, `pairing_code`, `connection`, other listened events) | the event type | no chat context exists |
+
+> **Note:** A single `messages.upsert` batch can rarely span multiple chats — most commonly during initial history sync. When that happens, the whole batch is grouped by the *first* message's chat as a best-effort approximation, since splitting one batch into multiple FIFO sends would change the output message shape. Real-time delivery (the common case) is always one message per batch, so this doesn't come up in practice.
+
+If you want to run a local FIFO queue with ElasticMQ, add it to `elasticmq.conf` (queue names with dots need quoting):
+
+```hocon
+queues {
+  input-queue { }
+  output-queue { }
+  "output-queue.fifo" {
+    fifo = true
+    contentBasedDeduplication = false
+  }
+}
+```
+
 ## Usage
 
 ### Local Development with Docker Compose (Recommended)
