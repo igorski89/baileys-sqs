@@ -26,7 +26,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createServer, IncomingMessage, ServerResponse } from 'node:http'
-import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 
 // ================= ENV =================
@@ -162,6 +162,73 @@ const getFifoGroupId = (body: any): string => {
   return body?.type === 'baileys_event' ? body.event : (body?.type || 'system')
 }
 
+// Deterministic JSON.stringify with sorted object keys, so two objects with
+// identical values but different key insertion order (e.g. if Baileys
+// builds a redelivered message via a different internal code path than the
+// original) still produce the same string - JSON.stringify alone preserves
+// insertion order rather than normalizing it.
+const canonicalStringify = (value: any): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(v => (v === undefined ? 'null' : canonicalStringify(v))).join(',')}]`
+  }
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value).filter(k => value[k] !== undefined).sort()
+    return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalStringify(value[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+// Only alphanumerics, "@ . : _ -" are used unescaped in the readable dedup
+// prefix (JIDs/message ids/statuses are already within this set in
+// practice); anything else is replaced so a stray character can never
+// break the SendMessage call outright.
+const sanitizeForDedupId = (value: string): string => value.replace(/[^a-zA-Z0-9@.:_-]/g, '_')
+
+// Human-readable prefix for the dedup id, so a dropped/duplicate message
+// is identifiable at a glance in a dead-letter queue or SQS console instead
+// of being an opaque hash. Mirrors getFifoGroupId's event-shape detection,
+// plus the message id/status needed to tell events for the same chat apart.
+const getDedupPrefix = (body: any): string => {
+  const upsertMsg = body?.payload?.messages?.[0]
+  if (upsertMsg?.key?.id) {
+    return `messages.upsert:${sanitizeForDedupId(upsertMsg.key.remoteJid || '')}:${sanitizeForDedupId(upsertMsg.key.id)}`
+  }
+
+  const updateEntry = Array.isArray(body?.payload) && body.payload[0]
+  if (updateEntry?.key?.id) {
+    return `messages.update:${sanitizeForDedupId(updateEntry.key.remoteJid || '')}:${sanitizeForDedupId(updateEntry.key.id)}:${sanitizeForDedupId(updateEntry.update?.status || '')}`
+  }
+
+  if (body?.event === 'presence.update' && body?.payload?.id) {
+    return `presence.update:${sanitizeForDedupId(body.payload.id)}`
+  }
+
+  return sanitizeForDedupId(body?.type === 'baileys_event' ? body.event : (body?.type || 'system'))
+}
+
+// Content-based dedup id, so a genuinely re-sent/redelivered event (e.g.
+// Baileys redelivering a messages.upsert after a reconnect) is actually
+// caught by SQS's 5-minute FIFO dedup window. A random id per call would
+// only ever match an SDK-internal retry of the exact same request - which
+// already carries the same id regardless - so it provides no real
+// protection against genuine duplicate sends. `id` is excluded from the
+// hash because it's a wrapper correlation id we generate fresh per call
+// (baked-in randomness), not part of the actual event content.
+//
+// The id is prefixed with a readable summary (chat/message/status) so a
+// dropped duplicate is identifiable at a glance in a dead-letter queue or
+// the SQS console, instead of being an opaque hash - the hash suffix still
+// covers the full content, so it remains the source of truth for whether
+// two sends are true duplicates, even for fields the prefix doesn't capture.
+const computeDedupId = (body: any): string => {
+  const { id, ...content } = body || {}
+  const hash = createHash('sha256').update(canonicalStringify(content)).digest('hex')
+  // SQS caps MessageDeduplicationId at 128 chars; cap the prefix well below
+  // that so prefix + "-" + a full 64-char hash never risks exceeding it.
+  const prefix = getDedupPrefix(body).slice(0, 55)
+  return `${prefix}-${hash}`
+}
+
 const sendToQueue = async (body: any) => {
   try {
     await sqs.send(
@@ -171,7 +238,7 @@ const sendToQueue = async (body: any) => {
         ...(OUTPUT_QUEUE_IS_FIFO
           ? {
               MessageGroupId: getFifoGroupId(body),
-              MessageDeduplicationId: randomUUID()
+              MessageDeduplicationId: computeDedupId(body)
             }
           : {})
       })

@@ -219,7 +219,10 @@ INPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/input-queue.fifo
 OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue.fifo
 ```
 
-**`MessageDeduplicationId`** is always a fresh random UUID per send, since FIFO's 5-minute dedup window exists to catch duplicate *SendMessage* API calls (e.g. an SDK-level retry), not to deduplicate distinct WhatsApp events.
+**`MessageDeduplicationId`** is computed differently for each direction, since the two producers have different duplicate-risk profiles:
+
+- `index.ts` → `OUTPUT_QUEUE`: `<readable prefix>-<SHA-256 hash>`, e.g. `messages.update:1234@s.whatsapp.net:3EB0...:READ-a1b2c3...`. The hash covers the full event content (excluding the wrapper correlation id generated fresh per call, with object keys canonicalized/sorted first so two equal-but-differently-ordered objects still hash the same) and is what actually determines dedup — the prefix is purely a human-readable summary (chat/message/status, or the event type when there's no chat) so a dropped duplicate is identifiable at a glance in a dead-letter queue or the SQS console instead of being an opaque hash. Baileys can legitimately redeliver an already-processed `messages.upsert` after a reconnect, which would otherwise reach the consumer twice — the hash catches that real duplicate while a genuinely different event for the same message (e.g. a `delivered` → `read` status update) still has different content and is never wrongly dropped. A random id per call wouldn't help here, since it would only ever match an SDK-internal retry of the identical request, which already carries the same id regardless of how it's generated.
+- `sender.ts` → `INPUT_QUEUE`: a random id per call. This is a human-invoked CLI with no comparable redelivery producer above it, so content-based dedup would only add a footgun — silently swallowing an intentional identical resend (e.g. re-sending the same text on purpose within 5 minutes) — without fixing any real duplicate-send bug.
 
 **`MessageGroupId`** — FIFO only guarantees order *within* a group, so the id is chosen to keep each conversation ordered while letting independent conversations process in parallel:
 

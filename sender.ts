@@ -39,6 +39,12 @@ const sendTextMessage = async (to: string, text: string) => {
               // Group by recipient so commands to the same chat stay
               // ordered, while different chats process independently.
               MessageGroupId: cleanTo,
+              // Random per call, not content-based: unlike index.ts's
+              // OUTPUT_QUEUE (which has a real redelivery producer - Baileys
+              // itself, after a reconnect), this is a human-invoked CLI with
+              // no comparable duplicate-send risk. Content-based dedup here
+              // would silently swallow an intentional identical resend
+              // (e.g. re-sending the same text on purpose).
               MessageDeduplicationId: randomUUID()
             }
           : {})
