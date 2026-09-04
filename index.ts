@@ -4,7 +4,9 @@ import makeWASocket, {
   DEFAULT_CONNECTION_CONFIG,
   DisconnectReason,
   downloadMediaMessage,
+  extractMessageContent,
   fetchLatestBaileysVersion,
+  getContentType,
   makeCacheableSignalKeyStore,
   proto,
   useMultiFileAuthState,
@@ -388,6 +390,40 @@ const extractMedia = async (msg: any) => {
 // external map to store retry counts of messages when decryption/encryption fails
 const msgRetryCounterCache = new NodeCache({ stdTTL: 100, checkperiod: 120 }) as CacheStore
 
+// Per-chat disappearing-messages duration (seconds), so outgoing sends can
+// carry the ephemeralExpiration option Baileys requires on every send -
+// unlike groups (queryable via groupMetadata), Baileys doesn't track or
+// auto-apply a 1:1 chat's setting; without this, WhatsApp shows outgoing
+// messages as "won't disappear" even when the chat has it enabled.
+// In-memory only - lost on restart, but self-heals as soon as any message
+// flows through the chat again (see updateEphemeralCache below).
+const ephemeralExpirationByChat = new Map<string, number>()
+
+const updateEphemeralCache = (jid: string | undefined | null, expiration: number | null | undefined) => {
+  // undefined = no signal either way (field just wasn't present), leave
+  // the cache untouched. Baileys itself encodes "turned off" as null, not
+  // 0 (it does `protocolMsg.ephemeralExpiration || null` internally), so
+  // both 0 and null here mean "explicitly off" and must clear the cache.
+  if (!jid || expiration === undefined) return
+  if (expiration) {
+    ephemeralExpirationByChat.set(jid, expiration)
+  } else {
+    ephemeralExpirationByChat.delete(jid)
+  }
+}
+
+// Every message sent within a chat that has disappearing messages enabled
+// carries its own contextInfo.expiration, so we can also learn/refresh the
+// setting passively from incoming traffic - this is what lets the cache
+// self-heal after a restart, for any chat that's still active.
+const getMessageEphemeralExpiration = (msg: any): number | undefined => {
+  const content = extractMessageContent(msg?.message)
+  if (!content) return undefined
+
+  const type = getContentType(content)
+  return type ? (content as any)[type]?.contextInfo?.expiration : undefined
+}
+
 // ================= WHATSAPP =================
 
 let sock: any
@@ -504,6 +540,15 @@ const startWhatsApp = async () => {
         logger.debug('creds saved')
       }
 
+      // Track disappearing-messages settings as they change, regardless of
+      // LISTEN_EVENTS - that only filters what's forwarded to OUTPUT_QUEUE,
+      // it shouldn't silently disable internal state tracking.
+      if (events['chats.update']) {
+        for (const chat of events['chats.update'] as any[]) {
+          updateEphemeralCache(chat?.id, chat?.ephemeralExpiration)
+        }
+      }
+
       // Process other events based on LISTEN_EVENTS
       for (const [eventName, data] of Object.entries(events)) {
         if (LISTEN_EVENTS && !LISTEN_EVENTS.has(eventName)) continue
@@ -519,6 +564,11 @@ const startWhatsApp = async () => {
           for (const msg of upsertData.messages || []) {
             const media = await extractMedia(msg)
             if (media) msg._media = media
+
+            const expiration = getMessageEphemeralExpiration(msg)
+            if (expiration !== undefined) {
+              updateEphemeralCache(msg.key?.remoteJid, expiration)
+            }
 
             messagesMeta.push({
               message_id: msg.key?.id,
@@ -589,6 +639,17 @@ const sanitizeQuotedOption = (options: any) => {
   }
 }
 
+// Attach the chat's known disappearing-messages duration, if any, so
+// outgoing content isn't silently sent as non-expiring. Never overrides an
+// explicit value the caller already set.
+const applyEphemeralOption = (jid: string, options: any) => {
+  if (options.ephemeralExpiration !== undefined) return
+  const expiration = ephemeralExpirationByChat.get(jid)
+  if (expiration) {
+    options.ephemeralExpiration = expiration
+  }
+}
+
 const handleCommand = async (cmd: any) => {
   if (!sock) {
     logger.error('Socket not initialized')
@@ -600,6 +661,7 @@ const handleCommand = async (cmd: any) => {
   if (cmd.type === 'send_text') {
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
+    applyEphemeralOption(jid, options)
 
     // If client provides full message object, use it directly; otherwise use text
     const messageContent = cmd.message || { text: cmd.text }
@@ -641,6 +703,7 @@ const handleCommand = async (cmd: any) => {
 
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
+    applyEphemeralOption(jid, options)
 
     await sock.sendMessage(jid, message, options)
     logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
@@ -817,6 +880,7 @@ const handleCommand = async (cmd: any) => {
 
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
+    applyEphemeralOption(jid, options)
 
     await sock.sendMessage(jid, cmd.body, options)
     logger.debug({ jid, bodyKeys: Object.keys(cmd.body) }, 'sent raw message')
