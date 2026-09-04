@@ -406,8 +406,14 @@ const updateEphemeralCache = (jid: string | undefined | null, expiration: number
   // both 0 and null here mean "explicitly off" and must clear the cache.
   if (!jid || expiration === undefined) return
   if (expiration) {
+    if (ephemeralExpirationByChat.get(jid) !== expiration) {
+      logger.debug({ jid, expiration }, 'ephemeral cache: enabled/updated')
+    }
     ephemeralExpirationByChat.set(jid, expiration)
   } else {
+    if (ephemeralExpirationByChat.has(jid)) {
+      logger.debug({ jid }, 'ephemeral cache: disabled')
+    }
     ephemeralExpirationByChat.delete(jid)
   }
 }
@@ -647,6 +653,7 @@ const applyEphemeralOption = (jid: string, options: any) => {
   const expiration = ephemeralExpirationByChat.get(jid)
   if (expiration) {
     options.ephemeralExpiration = expiration
+    logger.debug({ jid, expiration }, 'applying cached ephemeralExpiration to outgoing message')
   }
 }
 
