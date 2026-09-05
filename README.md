@@ -72,7 +72,6 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 
 # WhatsApp/Baileys Configuration
 SESSION_DIR=./auth_info_baileys
-LISTEN_EVENTS=*
 
 # Optional: Pin WhatsApp Web version (skips GitHub fetch)
 # Format: [major,minor,patch] as JSON array

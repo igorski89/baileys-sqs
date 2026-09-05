@@ -75,12 +75,6 @@ const HTTP_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined
 const HTTP_HOST = process.env.HTTP_HOST || '0.0.0.0'
 const HTTP_AUTH_TOKEN = process.env.AUTH_TOKEN
 
-const RAW_EVENTS = process.env.LISTEN_EVENTS || '*'
-const LISTEN_EVENTS =
-  RAW_EVENTS === '*'
-    ? null
-    : new Set(RAW_EVENTS.split(',').map(e => e.trim()))
-
 // ================= LOGGER =================
 
 const logger = P({
@@ -546,18 +540,16 @@ const startWhatsApp = async () => {
         logger.debug('creds saved')
       }
 
-      // Track disappearing-messages settings as they change, regardless of
-      // LISTEN_EVENTS - that only filters what's forwarded to OUTPUT_QUEUE,
-      // it shouldn't silently disable internal state tracking.
+      // Track disappearing-messages settings as they change.
       if (events['chats.update']) {
         for (const chat of events['chats.update'] as any[]) {
           updateEphemeralCache(chat?.id, chat?.ephemeralExpiration)
         }
       }
 
-      // Process other events based on LISTEN_EVENTS
+      // Forward every other event to OUTPUT_QUEUE - consumers filter out
+      // whatever they don't want on their side.
       for (const [eventName, data] of Object.entries(events)) {
-        if (LISTEN_EVENTS && !LISTEN_EVENTS.has(eventName)) continue
         if (eventName === 'connection.update' || eventName === 'creds.update') continue
 
         let meta: any = {}
