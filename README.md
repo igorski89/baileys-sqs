@@ -96,6 +96,14 @@ curl -X POST http://localhost:3000/commands \
 
 The request body is the exact same JSON shape used for `INPUT_QUEUE` messages (`send_text`, `send_media`, `send_presence`, `send_reaction`, `send_read_receipt`, `send_edit`, `send_delete`, `send_location`, `send_contact`, `send_poll`, `raw` — see [Sender](#using-the-sender-cli-tool) for the format). A `GET /health` route is also available and returns `{"ok":true,"connected":<bool>}` without requiring auth.
 
+Any command — via `INPUT_QUEUE` or the HTTP endpoint — may include an optional `correlation_id` (any string, opaque to baileys-sqs). When present, a `command_ack` event is published on `OUTPUT_QUEUE` once the command finishes:
+
+```json
+{"type":"command_ack","payload":{"correlation_id":"...","command_type":"send_text","to":"1234567890@s.whatsapp.net","ok":true,"message_id":"3EB0..."}}
+```
+
+`message_id` is the real WhatsApp message id (`null` for commands that don't produce one — currently `send_presence` and `send_read_receipt`). On failure, `ok` is `false` and `error` is set instead of `message_id`. `send_poll`'s ack additionally includes `message_secret` (base64) — the poll's encryption secret, needed to decrypt votes later; baileys-sqs never stores it. Without `correlation_id`, behavior is unchanged from before — no `command_ack` is emitted.
+
 `send_media`'s `media.type` is one of `image`, `video`, `audio`, `sticker`, or `document` (default). Stickers must already be WebP-encoded (ideally 512×512, static or animated) — WhatsApp won't convert a JPEG/PNG into a sticker for you, so any format conversion needs to happen before calling `send_media`. `media.mimetype` is optional for every type; when omitted, Baileys falls back to the correct default per type (`image/webp` for stickers, `application/pdf` for documents, etc.) rather than a generic one.
 
 Since SQS doesn't guarantee ordering, sending a typing indicator (`send_presence`) and then a `send_text` reply through SQS can arrive out of order at WhatsApp. Sending both through this HTTP endpoint sequentially avoids that:
@@ -230,6 +238,7 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue.fifo
 | `sender.ts` → `INPUT_QUEUE` | the recipient (`to`) | the command you're sending |
 | `index.ts` → `OUTPUT_QUEUE`, chat events (`messages.upsert`/`messages.update`) | the chat (`remoteJid`) | the WhatsApp message itself |
 | `index.ts` → `OUTPUT_QUEUE`, `presence.update` | the contact/chat (`id`) | the presence payload |
+| `index.ts` → `OUTPUT_QUEUE`, `command_ack` | the chat (`to`) | the command result |
 | `index.ts` → `OUTPUT_QUEUE`, everything else (`qr`, `pairing_code`, `connection`, other listened events) | the event type | no chat context exists |
 
 > **Note:** A single `messages.upsert` batch can rarely span multiple chats — most commonly during initial history sync. When that happens, the whole batch is grouped by the *first* message's chat as a best-effort approximation, since splitting one batch into multiple FIFO sends would change the output message shape. Real-time delivery (the common case) is always one message per batch, so this doesn't come up in practice.

@@ -155,6 +155,10 @@ const getFifoGroupId = (body: any): string => {
     return body.payload.id
   }
 
+  if (body?.type === 'command_ack' && body?.payload?.to) {
+    return body.payload.to
+  }
+
   return body?.type === 'baileys_event' ? body.event : (body?.type || 'system')
 }
 
@@ -197,6 +201,11 @@ const getDedupPrefix = (body: any): string => {
 
   if (body?.event === 'presence.update' && body?.payload?.id) {
     return `presence.update:${sanitizeForDedupId(body.payload.id)}`
+  }
+
+  if (body?.type === 'command_ack' && body?.payload?.to) {
+    const ref = body.payload.correlation_id || body.payload.message_id || ''
+    return `command_ack:${sanitizeForDedupId(body.payload.to)}:${sanitizeForDedupId(body.payload.command_type || '')}:${sanitizeForDedupId(ref)}`
   }
 
   return sanitizeForDedupId(body?.type === 'baileys_event' ? body.event : (body?.type || 'system'))
@@ -665,9 +674,9 @@ const handleCommand = async (cmd: any) => {
     // If client provides full message object, use it directly; otherwise use text
     const messageContent = cmd.message || { text: cmd.text }
 
-    await sock.sendMessage(jid, messageContent, options)
+    const sentMsg = await sock.sendMessage(jid, messageContent, options)
     logger.debug({ jid, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent text message')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_media') {
@@ -704,9 +713,9 @@ const handleCommand = async (cmd: any) => {
     sanitizeQuotedOption(options)
     applyEphemeralOption(jid, options)
 
-    await sock.sendMessage(jid, message, options)
+    const sentMsg = await sock.sendMessage(jid, message, options)
     logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_presence') {
@@ -725,7 +734,7 @@ const handleCommand = async (cmd: any) => {
 
     await sock.sendPresenceUpdate(cmd.presence, jid)
     logger.debug({ jid, presence: cmd.presence }, 'sent presence update')
-    return
+    return { to: jid }
   }
 
   if (cmd.type === 'send_reaction') {
@@ -738,7 +747,7 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_reaction requires "message_key" with at least an "id" field')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       react: {
         text: cmd.reaction,
         key: {
@@ -750,7 +759,7 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, reaction: cmd.reaction, messageId: messageKey.id }, 'sent reaction')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_read_receipt') {
@@ -770,7 +779,7 @@ const handleCommand = async (cmd: any) => {
       }))
     )
     logger.debug({ jid, count: keys.length }, 'sent read receipt')
-    return
+    return { to: jid }
   }
 
   if (cmd.type === 'send_edit') {
@@ -783,7 +792,7 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_edit requires "message_key" with at least an "id" field')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       text: cmd.text,
       // Only your own messages can be edited - default to true unless the
       // caller explicitly says otherwise.
@@ -795,7 +804,7 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, messageId: messageKey.id }, 'edited message')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_delete') {
@@ -804,7 +813,7 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_delete requires "message_key" with at least an "id" field')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       // Deletes your own message, or anyone's in a group if you're admin -
       // default to true (your own message) unless told otherwise.
       delete: {
@@ -815,7 +824,7 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, messageId: messageKey.id }, 'deleted message')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_location') {
@@ -824,7 +833,7 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_location requires "location" with numeric "latitude" and "longitude"')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       location: {
         degreesLatitude: location.latitude,
         degreesLongitude: location.longitude,
@@ -833,7 +842,7 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, latitude: location.latitude, longitude: location.longitude }, 'sent location')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_contact') {
@@ -842,14 +851,14 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_contact requires "contacts" (array) or "contact" (single), each with a "vcard" string')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       contacts: {
         displayName: contacts.length === 1 ? contacts[0].displayName : undefined,
         contacts: contacts.map((c: any) => ({ displayName: c.displayName, vcard: c.vcard }))
       }
     })
     logger.debug({ jid, count: contacts.length }, 'sent contact')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   if (cmd.type === 'send_poll') {
@@ -858,7 +867,7 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_poll requires "poll" with a "name" string and at least 2 "values"')
     }
 
-    await sock.sendMessage(jid, {
+    const sentMsg = await sock.sendMessage(jid, {
       poll: {
         name: poll.name,
         values: poll.values,
@@ -866,7 +875,18 @@ const handleCommand = async (cmd: any) => {
       }
     })
     logger.debug({ jid, question: poll.name, optionCount: poll.values.length }, 'sent poll')
-    return
+
+    // The poll's encryption secret is generated locally by Baileys at send
+    // time and only ever available on this return value - it's never sent
+    // back to us afterward. Surface it here so a caller that supplied a
+    // correlation_id can persist it and decrypt votes itself later; we
+    // never store it ourselves.
+    const messageSecret = sentMsg?.message?.messageContextInfo?.messageSecret
+    return {
+      to: jid,
+      messageId: sentMsg?.key?.id ?? null,
+      extra: { message_secret: messageSecret ? Buffer.from(messageSecret).toString('base64') : null }
+    }
   }
 
   if (cmd.type === 'raw') {
@@ -881,12 +901,51 @@ const handleCommand = async (cmd: any) => {
     sanitizeQuotedOption(options)
     applyEphemeralOption(jid, options)
 
-    await sock.sendMessage(jid, cmd.body, options)
+    const sentMsg = await sock.sendMessage(jid, cmd.body, options)
     logger.debug({ jid, bodyKeys: Object.keys(cmd.body) }, 'sent raw message')
-    return
+    return { to: jid, messageId: sentMsg?.key?.id ?? null }
   }
 
   throw new Error(`Unknown command type: ${cmd.type}`)
+}
+
+// Optional pass-through id set by the caller. When present, emits a
+// confirmation event on OUTPUT_QUEUE reporting what happened - the real
+// WhatsApp message id (when the command produces one), any command-specific
+// extra data (e.g. a poll's encryption secret), or the error if it failed.
+// Silently does nothing when correlation_id is absent, so this has zero
+// effect on any existing caller that doesn't use it.
+const dispatchCommand = async (cmd: any) => {
+  try {
+    const result = await handleCommand(cmd)
+    if (cmd.correlation_id) {
+      await sendToQueue({
+        type: 'command_ack',
+        payload: {
+          correlation_id: cmd.correlation_id,
+          command_type: cmd.type,
+          to: result?.to ?? null,
+          ok: true,
+          message_id: result?.messageId ?? null,
+          ...(result?.extra || {})
+        }
+      })
+    }
+  } catch (err: any) {
+    if (cmd.correlation_id) {
+      await sendToQueue({
+        type: 'command_ack',
+        payload: {
+          correlation_id: cmd.correlation_id,
+          command_type: cmd.type,
+          to: (cmd.to ? normalizeJid(cmd.to) : null) ?? null,
+          ok: false,
+          error: err?.message || String(err)
+        }
+      })
+    }
+    throw err // preserve existing error handling at both call sites below
+  }
 }
 
 // ================= HTTP INPUT ENDPOINT =================
@@ -971,7 +1030,7 @@ const startHttpServer = () => {
         return sendJson(res, 400, { ok: false, error: 'Command must include "type" and "to"' })
       }
 
-      await handleCommand(cmd)
+      await dispatchCommand(cmd)
       return sendJson(res, 200, { ok: true })
     } catch (err: any) {
       logger.error({ err }, 'HTTP command error')
@@ -1003,7 +1062,7 @@ const pollLoop = async () => {
         try {
           const body = JSON.parse(msg.Body!)
           logger.debug({ cmdType: body.type }, 'Received command')
-          await handleCommand(body)
+          await dispatchCommand(body)
 
           await sqs.send(
             new DeleteMessageCommand({
