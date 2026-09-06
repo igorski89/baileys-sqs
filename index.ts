@@ -192,7 +192,7 @@ const getDedupPrefix = (body: any): string => {
 
   const updateEntry = Array.isArray(body?.payload) && body.payload[0]
   if (updateEntry?.key?.id) {
-    return `messages.update:${sanitizeForDedupId(updateEntry.key.remoteJid || '')}:${sanitizeForDedupId(updateEntry.key.id)}:${sanitizeForDedupId(updateEntry.update?.status || '')}`
+    return `messages.update:${sanitizeForDedupId(updateEntry.key.remoteJid || '')}:${sanitizeForDedupId(updateEntry.key.id)}:${sanitizeForDedupId(String(updateEntry.update?.status ?? ''))}`
   }
 
   if (body?.event === 'presence.update' && body?.payload?.id) {
