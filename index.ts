@@ -925,6 +925,7 @@ const dispatchCommand = async (cmd: any) => {
           correlation_id: cmd.correlation_id,
           command_type: cmd.type,
           to: result?.to ?? null,
+          from: sock?.user?.id ?? null,
           ok: true,
           message_id: result?.messageId ?? null,
           ...(result?.extra || {})
@@ -939,6 +940,7 @@ const dispatchCommand = async (cmd: any) => {
           correlation_id: cmd.correlation_id,
           command_type: cmd.type,
           to: (cmd.to ? normalizeJid(cmd.to) : null) ?? null,
+          from: sock?.user?.id ?? null,
           ok: false,
           error: err?.message || String(err)
         }
