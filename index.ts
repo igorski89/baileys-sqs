@@ -867,14 +867,18 @@ const handleCommand = async (cmd: any) => {
       throw new Error('send_poll requires "poll" with a "name" string and at least 2 "values"')
     }
 
+    const options = cmd.options || {}
+    sanitizeQuotedOption(options)
+    applyEphemeralOption(jid, options)
+
     const sentMsg = await sock.sendMessage(jid, {
       poll: {
         name: poll.name,
         values: poll.values,
         selectableCount: poll.selectableCount
       }
-    })
-    logger.debug({ jid, question: poll.name, optionCount: poll.values.length }, 'sent poll')
+    }, options)
+    logger.debug({ jid, question: poll.name, optionCount: poll.values.length, hasOptions: !!cmd.options }, 'sent poll')
 
     // The poll's encryption secret is generated locally by Baileys at send
     // time and only ever available on this return value - it's never sent
