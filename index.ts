@@ -930,6 +930,7 @@ const dispatchCommand = async (cmd: any) => {
           command_type: cmd.type,
           to: result?.to ?? null,
           from: sock?.user?.id ?? null,
+          me_lid: sock?.user?.lid ?? null,
           ok: true,
           message_id: result?.messageId ?? null,
           ...(result?.extra || {})
@@ -945,6 +946,7 @@ const dispatchCommand = async (cmd: any) => {
           command_type: cmd.type,
           to: (cmd.to ? normalizeJid(cmd.to) : null) ?? null,
           from: sock?.user?.id ?? null,
+          me_lid: sock?.user?.lid ?? null,
           ok: false,
           error: err?.message || String(err)
         }
