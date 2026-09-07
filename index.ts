@@ -29,6 +29,8 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createServer, IncomingMessage, ServerResponse } from 'node:http'
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 
 // ================= ENV =================
@@ -36,6 +38,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 const INPUT_QUEUE = process.env.INPUT_QUEUE!
 const OUTPUT_QUEUE = process.env.OUTPUT_QUEUE!
 const SESSION_DIR = process.env.SESSION_DIR || './auth'
+const EPHEMERAL_CACHE_PATH = join(SESSION_DIR, 'ephemeral-cache.json')
 const USE_PAIRING_CODE = process.env.USE_PAIRING_CODE === 'true'
 const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION
 
@@ -398,9 +401,43 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 100, checkperiod: 120 }) as
 // unlike groups (queryable via groupMetadata), Baileys doesn't track or
 // auto-apply a 1:1 chat's setting; without this, WhatsApp shows outgoing
 // messages as "won't disappear" even when the chat has it enabled.
-// In-memory only - lost on restart, but self-heals as soon as any message
-// flows through the chat again (see updateEphemeralCache below).
+// Persisted to EPHEMERAL_CACHE_PATH (see loadEphemeralCache/persistEphemeralCache
+// below) so a restart doesn't wipe it - it also self-heals as soon as any
+// message flows through the chat again (see updateEphemeralCache below),
+// but that can be an arbitrarily long wait for a quiet chat.
 const ephemeralExpirationByChat = new Map<string, number>()
+
+// Loaded once at startup (see startWhatsApp), written through on every
+// real change in updateEphemeralCache below - not periodic, since chat-
+// setting changes are rare enough that there's no hot path here to protect.
+// A missing or corrupt file just starts the cache empty (same as today,
+// before this existed) rather than failing startup - this is a convenience
+// cache, not a correctness-critical resource like the auth state it sits
+// alongside.
+const loadEphemeralCache = () => {
+  try {
+    const raw = readFileSync(EPHEMERAL_CACHE_PATH, 'utf8')
+    const parsed = JSON.parse(raw)
+    for (const [jid, expiration] of Object.entries(parsed)) {
+      if (typeof expiration === 'number') {
+        ephemeralExpirationByChat.set(jid, expiration)
+      }
+    }
+    logger.info({ count: ephemeralExpirationByChat.size, path: EPHEMERAL_CACHE_PATH }, 'loaded ephemeral cache from disk')
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') {
+      logger.warn({ err, path: EPHEMERAL_CACHE_PATH }, 'failed to load ephemeral cache - starting empty')
+    }
+  }
+}
+
+const persistEphemeralCache = () => {
+  try {
+    writeFileSync(EPHEMERAL_CACHE_PATH, JSON.stringify(Object.fromEntries(ephemeralExpirationByChat)))
+  } catch (err) {
+    logger.warn({ err, path: EPHEMERAL_CACHE_PATH }, 'failed to persist ephemeral cache')
+  }
+}
 
 const updateEphemeralCache = (jid: string | undefined | null, expiration: number | null | undefined) => {
   // undefined = no signal either way (field just wasn't present), leave
@@ -411,13 +448,17 @@ const updateEphemeralCache = (jid: string | undefined | null, expiration: number
   if (expiration) {
     if (ephemeralExpirationByChat.get(jid) !== expiration) {
       logger.debug({ jid, expiration }, 'ephemeral cache: enabled/updated')
+      ephemeralExpirationByChat.set(jid, expiration)
+      persistEphemeralCache()
+    } else {
+      ephemeralExpirationByChat.set(jid, expiration)
     }
-    ephemeralExpirationByChat.set(jid, expiration)
   } else {
     if (ephemeralExpirationByChat.has(jid)) {
       logger.debug({ jid }, 'ephemeral cache: disabled')
+      ephemeralExpirationByChat.delete(jid)
+      persistEphemeralCache()
     }
-    ephemeralExpirationByChat.delete(jid)
   }
 }
 
@@ -439,6 +480,7 @@ let sock: any
 
 const startWhatsApp = async () => {
   logger.info(`Starting WhatsApp with SESSION_DIR: ${SESSION_DIR}`)
+  loadEphemeralCache()
 
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
