@@ -521,6 +521,11 @@ const startWhatsApp = async () => {
     generateHighQualityLinkPreview: true,
   })
 
+  // One pairing code per connection: every request is a new link attempt,
+  // which replaces the previous code, and WhatsApp limits how many a number
+  // may make. QR refreshes arrive every 20 seconds and must not request more.
+  let pairingCodeRequested = false
+
   // Process events efficiently in a batch
   sock.ev.process(
     async (events: Record<string, any>) => {
@@ -536,7 +541,8 @@ const startWhatsApp = async () => {
           })
 
           // Pairing code for Web clients
-          if (USE_PAIRING_CODE && !sock.authState.creds.registered) {
+          if (USE_PAIRING_CODE && !sock.authState.creds.registered && !pairingCodeRequested) {
+            pairingCodeRequested = true
             logger.info('Requesting pairing code...')
             const phoneNumber = process.env.PHONE_NUMBER
             if (phoneNumber) {
