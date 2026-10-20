@@ -7,6 +7,9 @@ import makeWASocket, {
   extractMessageContent,
   fetchLatestBaileysVersion,
   getContentType,
+  isLidUser,
+  isPnUser,
+  jidNormalizedUser,
   makeCacheableSignalKeyStore,
   proto,
   useMultiFileAuthState,
@@ -688,12 +691,28 @@ const sanitizeQuotedOption = (options: any) => {
   }
 }
 
+// The cache is keyed by the chat id events carry, which for most 1:1 chats
+// is the LID, while commands usually address a phone number (or the other
+// way round), so a chat is looked up under its other form too.
+const cachedEphemeralExpiration = async (jid: string) => {
+  const direct = ephemeralExpirationByChat.get(jid)
+  if (direct || !sock) return direct
+  try {
+    const mapping = sock.signalRepository.lidMapping
+    const alt = isLidUser(jid) ? await mapping.getPNForLID(jid) : isPnUser(jid) ? await mapping.getLIDForPN(jid) : null
+    return alt ? ephemeralExpirationByChat.get(jidNormalizedUser(alt)) : undefined
+  } catch (err) {
+    logger.warn({ err, jid }, 'failed to resolve the chat for the ephemeral cache')
+    return undefined
+  }
+}
+
 // Attach the chat's known disappearing-messages duration, if any, so
 // outgoing content isn't silently sent as non-expiring. Never overrides an
 // explicit value the caller already set.
-const applyEphemeralOption = (jid: string, options: any) => {
+const applyEphemeralOption = async (jid: string, options: any) => {
   if (options.ephemeralExpiration !== undefined) return
-  const expiration = ephemeralExpirationByChat.get(jid)
+  const expiration = await cachedEphemeralExpiration(jid)
   if (expiration) {
     options.ephemeralExpiration = expiration
     logger.debug({ jid, expiration }, 'applying cached ephemeralExpiration to outgoing message')
@@ -711,7 +730,7 @@ const handleCommand = async (cmd: any) => {
   if (cmd.type === 'send_text') {
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
-    applyEphemeralOption(jid, options)
+    await applyEphemeralOption(jid, options)
 
     // If client provides full message object, use it directly; otherwise use text
     const messageContent = cmd.message || { text: cmd.text }
@@ -753,7 +772,7 @@ const handleCommand = async (cmd: any) => {
 
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
-    applyEphemeralOption(jid, options)
+    await applyEphemeralOption(jid, options)
 
     const sentMsg = await sock.sendMessage(jid, message, options)
     logger.debug({ jid, mediaType: media.type, hasOptions: !!cmd.options, hasQuoted: !!options.quoted, hasCustomMessage: !!cmd.message }, 'sent media message')
@@ -911,7 +930,7 @@ const handleCommand = async (cmd: any) => {
 
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
-    applyEphemeralOption(jid, options)
+    await applyEphemeralOption(jid, options)
 
     const sentMsg = await sock.sendMessage(jid, {
       poll: {
@@ -945,7 +964,7 @@ const handleCommand = async (cmd: any) => {
 
     const options = cmd.options || {}
     sanitizeQuotedOption(options)
-    applyEphemeralOption(jid, options)
+    await applyEphemeralOption(jid, options)
 
     const sentMsg = await sock.sendMessage(jid, cmd.body, options)
     logger.debug({ jid, bodyKeys: Object.keys(cmd.body) }, 'sent raw message')
