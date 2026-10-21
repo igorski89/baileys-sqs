@@ -240,6 +240,14 @@ const computeDedupId = (body: any): string => {
   return `${prefix}-${hash}`
 }
 
+// A connection status is a state change rather than a redelivery: the same
+// status recurs ('connected' after every reconnect), and a content-only id
+// would drop the repeat within the FIFO window. Its id carries the send time.
+const sendDedupId = (body: any): string => {
+  const id = computeDedupId(body)
+  return body?.type === 'connection' ? id.replace('connection-', `connection:${Date.now()}-`) : id
+}
+
 const sendToQueue = async (body: any) => {
   try {
     await sqs.send(
@@ -249,7 +257,7 @@ const sendToQueue = async (body: any) => {
         ...(OUTPUT_QUEUE_IS_FIFO
           ? {
               MessageGroupId: getFifoGroupId(body),
-              MessageDeduplicationId: computeDedupId(body)
+              MessageDeduplicationId: sendDedupId(body)
             }
           : {})
       })
