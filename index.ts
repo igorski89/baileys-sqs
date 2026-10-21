@@ -11,6 +11,7 @@ import makeWASocket, {
   isPnUser,
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
+  normalizeMessageContent,
   proto,
   useMultiFileAuthState,
   WAMessageKey,
@@ -309,8 +310,10 @@ const resolveMediaBuffer = async (media: any): Promise<Buffer> => {
 }
 
 // ===== Media type detection =====
+// Wrappers (disappearing, view once, document with caption) are looked
+// through, as downloadMediaMessage itself does.
 const getMediaType = (msg: any): 'image' | 'video' | 'audio' | 'document' | null => {
-  const m = msg.message || {}
+  const m: any = normalizeMessageContent(msg.message) || {}
   if (m.imageMessage) return 'image'
   if (m.videoMessage) return 'video'
   if (m.audioMessage) return 'audio'
@@ -379,7 +382,7 @@ const extractMedia = async (msg: any) => {
     const buffer = await downloadMediaMessage(msg, 'buffer', {})
     if (!buffer) return null
 
-    const mimetype = msg.message?.[`${type}Message`]?.mimetype
+    const mimetype = (normalizeMessageContent(msg.message) as any)?.[`${type}Message`]?.mimetype
 
     if (S3_BUCKET) {
       const { url, key } = await uploadMediaToS3(type, mimetype, buffer, msg.key?.id)
