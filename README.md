@@ -577,6 +577,8 @@ baileys-sqs/
 
 A `messages.upsert` whose message has `messageStubType` 2 (`CIPHERTEXT`) and no content is a message this device could not read. The app logs `message arrived without content` with its id, chat and reason. With the reason `Message absent from node`, the sender's client encrypted no copy for this linked device, and Baileys asks this account's primary phone once to resend it. If the phone is offline, the content never arrives, and 15 seconds later the app logs `message content never arrived: the primary phone did not answer the resend request; is it online?`. Other reasons (`Bad MAC`, `No session`, ...) are decryption failures, retried by Baileys.
 
+If every message from one contact arrives this way, even while the phone is online, that contact's client still has this account's devices as they were before this device was linked. Sending that contact one message from the app sets up an encrypted session with this device, and their next messages arrive with content.
+
 ## License
 
 MIT
