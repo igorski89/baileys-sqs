@@ -573,6 +573,10 @@ baileys-sqs/
 3. Check AWS credentials are set (even for local ElasticMQ)
 4. Check app logs: `docker-compose -f docker-compose.dev.yml logs -f app`
 
+### Received Messages With an Empty `message`
+
+A `messages.upsert` whose message has `messageStubType` 2 (`CIPHERTEXT`) and no content is a message this device could not read. The app logs `message arrived without content` with its id, chat and reason. With the reason `Message absent from node`, the sender's client encrypted no copy for this linked device, and Baileys asks this account's primary phone once to resend it. If the phone is offline, the content never arrives, and 15 seconds later the app logs `message content never arrived: the primary phone did not answer the resend request; is it online?`. Other reasons (`Bad MAC`, `No session`, ...) are decryption failures, retried by Baileys.
+
 ## License
 
 MIT

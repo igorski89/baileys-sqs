@@ -11,11 +11,13 @@ import makeWASocket, {
   isPnUser,
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
+  NO_MESSAGE_FOUND_ERROR_TEXT,
   normalizeMessageContent,
   proto,
   useMultiFileAuthState,
   WAMessageKey,
-  WAMessageContent
+  WAMessageContent,
+  WAMessageStubType
 } from '@whiskeysockets/baileys'
 import P from 'pino'
 import {
@@ -428,6 +430,36 @@ const ephemeralExpirationByChat = new Map<string, number>()
 // before this existed) rather than failing startup - this is a convenience
 // cache, not a correctness-critical resource like the auth state it sits
 // alongside.
+// A message WhatsApp delivered without a copy for this device, or that failed
+// to decrypt, arrives as a CIPHERTEXT stub with no content. For "Message
+// absent from node" Baileys asks the primary phone once to resend it and
+// gives up after ten seconds (2 s delay + 8 s wait); if the phone is offline
+// the content never comes. Warn about both, since an empty message is
+// otherwise easy to mistake for routine protocol noise.
+const MISSING_CONTENT_WAIT_MS = 15_000
+const pendingMissingContent = new Set<string>()
+
+const observeMissingContent = (msg: any) => {
+  const id = msg.key?.id
+  if (!id) return
+  const chat = msg.key?.remoteJid
+  if (msg.messageStubType !== WAMessageStubType.CIPHERTEXT) {
+    if (msg.message && pendingMissingContent.delete(id)) {
+      logger.info({ id, chat }, 'content of a message without content arrived from the phone')
+    }
+    return
+  }
+  const reason = msg.messageStubParameters?.[0]
+  logger.warn({ id, chat, participant: msg.key?.participant, reason }, 'message arrived without content')
+  if (reason !== NO_MESSAGE_FOUND_ERROR_TEXT) return
+  pendingMissingContent.add(id)
+  setTimeout(() => {
+    if (pendingMissingContent.delete(id)) {
+      logger.warn({ id, chat }, 'message content never arrived: the primary phone did not answer the resend request; is it online?')
+    }
+  }, MISSING_CONTENT_WAIT_MS)
+}
+
 const loadEphemeralCache = () => {
   try {
     const raw = readFileSync(EPHEMERAL_CACHE_PATH, 'utf8')
@@ -631,6 +663,7 @@ const startWhatsApp = async () => {
           const messagesMeta = []
 
           for (const msg of upsertData.messages || []) {
+            observeMissingContent(msg)
             const media = await extractMedia(msg)
             if (media) msg._media = media
 
