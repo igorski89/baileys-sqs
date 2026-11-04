@@ -251,12 +251,22 @@ const sendDedupId = (body: any): string => {
   return body?.type === 'connection' ? id.replace('connection-', `connection:${Date.now()}-`) : id
 }
 
+// Keys WhatsApp delivers to this device, which only the connection needs. They
+// open a chat's app state or a group's messages, so they never leave it. Baileys
+// still needs them on the original objects, so only the published text omits them.
+const KEY_MATERIAL = new Set([
+  'appStateSyncKeyShare',
+  'senderKeyDistributionMessage',
+  'fastRatchetKeySenderKeyDistributionMessage'
+])
+const withoutKeyMaterial = (key: string, value: any) => (KEY_MATERIAL.has(key) ? undefined : value)
+
 const sendToQueue = async (body: any) => {
   try {
     await sqs.send(
       new SendMessageCommand({
         QueueUrl: OUTPUT_QUEUE,
-        MessageBody: JSON.stringify(body),
+        MessageBody: JSON.stringify(body, withoutKeyMaterial),
         ...(OUTPUT_QUEUE_IS_FIFO
           ? {
               MessageGroupId: getFifoGroupId(body),
