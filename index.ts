@@ -524,33 +524,63 @@ const getMessageEphemeralExpiration = (msg: any): number | undefined => {
 
 let sock: any
 
+// How long WHATSAPP_VERSION=latest waits for GitHub before using the built-in version.
+const VERSION_FETCH_TIMEOUT_MS = 5000
+
+// The library's built-in version unless WHATSAPP_VERSION pins one (a JSON
+// array) or asks for `latest`, the version Baileys' master currently defaults
+// to. A failed or slow fetch, or a value that does not parse, falls back to the
+// built-in version, so the start never depends on GitHub.
+const whatsappVersion = async (): Promise<[number, number, number]> => {
+  const builtIn = DEFAULT_CONNECTION_CONFIG.version as [number, number, number]
+  const raw = WHATSAPP_VERSION?.trim()
+  if (!raw) {
+    return builtIn
+  }
+
+  if (raw.toLowerCase() === 'latest') {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<undefined>(resolve => {
+      timer = setTimeout(() => resolve(undefined), VERSION_FETCH_TIMEOUT_MS)
+    })
+    try {
+      const latest = await Promise.race([fetchLatestBaileysVersion(), timeout])
+      if (!latest) {
+        logger.warn({ timeoutMs: VERSION_FETCH_TIMEOUT_MS }, 'fetching the latest WA version timed out, using the built-in version')
+        return builtIn
+      }
+
+      if (latest.error) {
+        logger.warn({ err: latest.error }, 'could not fetch the latest WA version, using the built-in version')
+      }
+
+      return latest.version as [number, number, number]
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  try {
+    const version = JSON.parse(raw)
+    if (Array.isArray(version) && version.length === 3 && version.every(part => Number.isInteger(part) && part >= 0)) {
+      return version as [number, number, number]
+    }
+
+    throw new Error('expected a JSON array of three non-negative integers')
+  } catch (err) {
+    logger.error({ err, WHATSAPP_VERSION }, 'Failed to parse WHATSAPP_VERSION, using the built-in version')
+    return builtIn
+  }
+}
+
 const startWhatsApp = async () => {
   logger.info(`Starting WhatsApp with SESSION_DIR: ${SESSION_DIR}`)
   loadEphemeralCache()
 
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
-  // Get WhatsApp version - use env var if provided, otherwise fetch latest
-  let version: [number, number, number]
-  let isLatest = false
-
-  if (WHATSAPP_VERSION) {
-    try {
-      version = JSON.parse(WHATSAPP_VERSION) as [number, number, number]
-      logger.debug({ version: version.join('.') }, 'using WHATSAPP_VERSION from env')
-    } catch (err) {
-      logger.error({ err, WHATSAPP_VERSION }, 'Failed to parse WHATSAPP_VERSION, falling back to latest')
-      const latest = await fetchLatestBaileysVersion()
-      version = latest.version
-      isLatest = latest.isLatest
-      logger.debug({ version: version.join('.'), isLatest }, 'using latest WA version')
-    }
-  } else {
-    const latest = await fetchLatestBaileysVersion()
-    version = latest.version
-    isLatest = latest.isLatest
-    logger.debug({ version: version.join('.'), isLatest }, 'using latest WA version')
-  }
+  const version = await whatsappVersion()
+  logger.info({ version: version.join('.') }, 'using WA version')
 
   sock = makeWASocket({
     version,

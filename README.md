@@ -73,9 +73,12 @@ OUTPUT_QUEUE=https://sqs.us-east-1.amazonaws.com/123456789012/output-queue
 # WhatsApp/Baileys Configuration
 SESSION_DIR=./auth_info_baileys
 
-# Optional: Pin WhatsApp Web version (skips GitHub fetch)
-# Format: [major,minor,patch] as JSON array
-# WHATSAPP_VERSION=[2,3000,1035194821]
+# Optional: WhatsApp Web version. Unset, the version built into Baileys is used.
+# A JSON array [major,minor,patch] pins one; `latest` fetches the version
+# Baileys' master defaults to from GitHub (built-in version if that fails or
+# takes over 5 seconds)
+# WHATSAPP_VERSION=[2,3000,1052559453]
+# WHATSAPP_VERSION=latest
 ```
 
 ### HTTP Input Endpoint
